@@ -26,6 +26,7 @@ pub mod transport;
 
 mod arti_pipeline;
 mod tun;
+pub mod tun_desktop;
 
 pub use errors::{Error, Result};
 
