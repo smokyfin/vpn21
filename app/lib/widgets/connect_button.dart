@@ -28,7 +28,7 @@ class ConnectButton extends StatelessWidget {
         onPressed: null,
         style: FilledButton.styleFrom(
           minimumSize: const Size(220, 52),
-          backgroundColor: Colors.white.withOpacity(0.08),
+          backgroundColor: Colors.white.withValues(alpha: 0.08),
         ),
         child: const Row(
           mainAxisSize: MainAxisSize.min,
@@ -51,7 +51,7 @@ class ConnectButton extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(220, 52),
           foregroundColor: c.primary,
-          side: BorderSide(color: c.primary.withOpacity(0.6), width: 1.4),
+          side: BorderSide(color: c.primary.withValues(alpha: 0.6), width: 1.4),
         ),
         child: const Text('Disconnect', style: TextStyle(letterSpacing: 1.2)),
       ).animate().fade(duration: 250.ms).slideY(begin: 0.1, end: 0);

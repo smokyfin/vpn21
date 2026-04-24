@@ -50,7 +50,7 @@ class LogsPage extends ConsumerWidget {
                         'WARN' => Colors.amber,
                         'DEBUG' => Colors.blueGrey,
                         'TRACE' => Colors.grey,
-                        _ => Colors.white.withOpacity(0.75),
+                        _ => Colors.white.withValues(alpha: 0.75),
                       };
                       return Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -64,7 +64,7 @@ class LogsPage extends ConsumerWidget {
                             children: [
                               TextSpan(
                                 text: df.format(DateTime.fromMillisecondsSinceEpoch(ts)) + '  ',
-                                style: TextStyle(color: Colors.white.withOpacity(0.45)),
+                                style: TextStyle(color: Colors.white.withValues(alpha: 0.45)),
                               ),
                               TextSpan(
                                 text: level.padRight(6),
@@ -127,7 +127,7 @@ class _Empty extends StatelessWidget {
   Widget build(BuildContext context) => Center(
         child: Text(
           'No log entries yet.',
-          style: TextStyle(color: Colors.white.withOpacity(0.4)),
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
         ),
       );
 }

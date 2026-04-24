@@ -27,18 +27,18 @@ class Vpn21Theme {
         scrolledUnderElevation: 0,
         centerTitle: false,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: surface,
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: const Color(0xFF0F1215),
-        indicatorColor: accent.withOpacity(0.14),
+        indicatorColor: accent.withValues(alpha: 0.14),
         labelTextStyle: WidgetStatePropertyAll(
           TextStyle(
             fontSize: 12,
-            color: Colors.white.withOpacity(0.9),
+            color: Colors.white.withValues(alpha: 0.9),
             fontWeight: FontWeight.w500,
           ),
         ),

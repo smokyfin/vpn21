@@ -28,7 +28,7 @@ class SettingsPage extends ConsumerWidget {
               background: Container(
                 alignment: Alignment.centerRight,
                 padding: const EdgeInsets.only(right: 16),
-                color: Theme.of(context).colorScheme.error.withOpacity(0.14),
+                color: Theme.of(context).colorScheme.error.withValues(alpha: 0.14),
                 child: const Icon(Icons.delete_outline_rounded),
               ),
               direction: DismissDirection.endToStart,

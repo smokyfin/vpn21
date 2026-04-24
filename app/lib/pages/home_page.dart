@@ -40,7 +40,7 @@ class HomePage extends ConsumerWidget {
               Text(
                 _subtitle(status),
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.white.withOpacity(0.72),
+                      color: Colors.white.withValues(alpha: 0.72),
                     ),
                 textAlign: TextAlign.center,
               ).animate().fade(duration: 400.ms),
@@ -145,7 +145,7 @@ class _StatusRing extends StatelessWidget {
                 value: status.stage == VpnStage.idle ? 0 : v,
                 strokeWidth: 6,
                 color: color,
-                backgroundColor: Colors.white.withOpacity(0.06),
+                backgroundColor: Colors.white.withValues(alpha: 0.06),
               ),
             ),
           ),
