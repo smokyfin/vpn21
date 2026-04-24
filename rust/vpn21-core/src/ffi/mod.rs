@@ -185,12 +185,15 @@ pub extern "C" fn vpn21_tun_provision() -> *mut c_char {
             Ok(cfg) => cstr_out(
                 serde_json::json!({
                     "ok": true,
+                    // Field names match the Android/iOS platform channel
+                    // (camelCase) so the Dart `requestTun` consumer can use
+                    // a single code path across every platform.
                     "tun": {
                         "fd": cfg.fd,
                         "mtu": cfg.mtu,
                         "ipv4": cfg.ipv4.to_string(),
                         "mask": cfg.ipv4_mask,
-                        "dns_port": cfg.dns_listener_port,
+                        "dnsPort": cfg.dns_listener_port,
                     }
                 })
                 .to_string(),
@@ -202,6 +205,104 @@ pub extern "C" fn vpn21_tun_provision() -> *mut c_char {
     {
         err("unsupported on this platform")
     }
+}
+
+// ---------------- iOS packet pump -----------------------------------------
+//
+// Thin FFI around [`crate::ios_pump::IosPump`] so the Swift packet-tunnel
+// extension can push packets read from `NEPacketTunnelFlow` into the core
+// and drain outbound packets that the core produced.  Memory ownership:
+// for `push_inbound` the buffer is copied out of the C pointer and owned
+// by Rust; for `drain_outbound` Rust writes at most `cap` bytes into the
+// caller-supplied buffer and returns the number of bytes written, with the
+// exact packet boundary encoded as a single leading length-prefixed TLV:
+//
+//   [u16 big-endian length][packet bytes]...
+//
+// so Swift can re-assemble the original packet boundaries without a second
+// FFI call per packet.  The `max_packets` argument bounds how many packets
+// we will encode in one batch.
+//
+// These functions are cheap and lock-free *except* for a single mutex
+// held for the duration of the copy; that is fine because iOS always
+// calls us from the single packet-tunnel thread.
+
+#[allow(clippy::missing_safety_doc)]
+#[no_mangle]
+pub unsafe extern "C" fn vpn21_ios_pump_start() {
+    crate::ios_pump::global().start();
+}
+
+#[allow(clippy::missing_safety_doc)]
+#[no_mangle]
+pub unsafe extern "C" fn vpn21_ios_pump_stop() {
+    crate::ios_pump::global().stop();
+}
+
+#[allow(clippy::missing_safety_doc)]
+#[no_mangle]
+pub unsafe extern "C" fn vpn21_ios_pump_push_inbound(data: *const u8, len: usize) -> c_int {
+    if data.is_null() || len == 0 {
+        return -1;
+    }
+    let slice = std::slice::from_raw_parts(data, len);
+    if crate::ios_pump::global().push_inbound(slice.to_vec()) {
+        0
+    } else {
+        -1
+    }
+}
+
+/// Drains up to `max_packets` packets out of the pump's outbound queue into
+/// `buf` (capacity `cap` bytes) using the TLV framing described above.
+/// Returns the number of bytes written (>= 0) or -1 if `buf` is null / the
+/// batch would not fit.  Swift uses the returned length to slice the buffer
+/// into individual packets before handing them to `writePackets`.
+#[allow(clippy::missing_safety_doc)]
+#[no_mangle]
+pub unsafe extern "C" fn vpn21_ios_pump_drain_outbound(
+    buf: *mut u8,
+    cap: usize,
+    max_packets: usize,
+) -> isize {
+    if buf.is_null() || cap == 0 {
+        return -1;
+    }
+    let pkts = crate::ios_pump::global().drain_outbound(max_packets);
+    let mut out = std::slice::from_raw_parts_mut(buf, cap);
+    let mut written: usize = 0;
+    for p in &pkts {
+        let need = 2 + p.len();
+        if written + need > cap {
+            // Spill the rest back; don't lie to the caller about a partial packet.
+            // We push the unwritten tail back into the queue to preserve ordering.
+            let remaining: Vec<Vec<u8>> = pkts
+                [pkts.iter().position(|x| std::ptr::eq(x, p)).unwrap()..]
+                .iter()
+                .cloned()
+                .collect();
+            for r in remaining.into_iter().rev() {
+                crate::ios_pump::global().push_outbound(r);
+            }
+            break;
+        }
+        let len = p.len() as u16;
+        out[..2].copy_from_slice(&len.to_be_bytes());
+        out[2..2 + p.len()].copy_from_slice(p);
+        out = &mut out[need..];
+        written += need;
+    }
+    written as isize
+}
+
+/// Returns a JSON-encoded [`IosPumpStats`] snapshot; Swift uses this to
+/// surface queue pressure in the Logs tab.  Caller must free with
+/// [`vpn21_string_free`].
+#[allow(clippy::missing_safety_doc)]
+#[no_mangle]
+pub unsafe extern "C" fn vpn21_ios_pump_stats() -> *mut c_char {
+    let s = crate::ios_pump::global().stats();
+    cstr_out(serde_json::to_string(&s).unwrap_or_else(|_| "{}".into()))
 }
 
 /// Frees a C string previously returned by a `vpn21_*` function.

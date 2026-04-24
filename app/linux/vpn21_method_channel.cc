@@ -1,10 +1,10 @@
 // Linux platform channel handler for vpn21.
 //
-// Implements the "vpn21/native" method channel on Linux.  When `requestTun`
-// is called the Dart side receives a stub TUN metadata.  Actual TUN creation
-// happens in the Rust core (`tun_desktop::create_tun_linux`) — the helper
-// binary that runs with CAP_NET_ADMIN creates the device and passes its fd
-// back through the Rust FFI.
+// Kept as a compatibility fallback: on Linux the Dart side calls the Rust
+// FFI `vpn21_tun_provision` directly (see `app/lib/bridge/native.dart`) so
+// this channel only answers if the FFI symbol is missing.  Actual TUN
+// creation happens in the Rust core (`tun::platform::linux::provision`)
+// which opens `/dev/net/tun` + TUNSETIFF.
 
 #include <flutter_linux/flutter_linux.h>
 

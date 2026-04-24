@@ -181,7 +181,8 @@ mod tests {
 
     fn sample_cfg(tun_fd: Option<i32>, tun_auto: bool) -> TransportConfig {
         let raw = r#"{
-            "bridge_rsa_id": "x", "bridge_ed25519_id": "y",
+            "bridge_rsa_id": "715213AEA5BBE71AB2E9E1AFEE02D0170206021F",
+            "bridge_ed25519_id": "Rq4fdFNepS2oTFnyNrQon9FDWi46m5OFZKAGVFmMe9I",
             "doh_server": "https://dns.google/dns-query",
             "outbounds": [{"protocol":"vless","settings":{"vnext":[{"address":"1.2.3.4","port":443,"users":[{"id":"u"}]}]},"streamSettings":{"network":"grpc","grpcSettings":{"serviceName":"g"},"security":"reality","realitySettings":{"serverName":"s","publicKey":"p","shortId":"d","fingerprint":"f"}}}]
         }"#;

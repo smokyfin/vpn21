@@ -154,7 +154,13 @@ async fn start_inner(params: ArtiStartParams, cancel: CancellationToken) -> Resu
     // `run_socks_proxy` in the companion `arti` binary crate; for the
     // in-process case we use `TorClient::connect()` behind a thin
     // hand-rolled socks proxy.  That shim lives in [`socks_inbound`].
-    socks_inbound::spawn(client, params.client_socks.clone(), cancel.clone());
+    let exit_country = params.profile.exit_country.clone();
+    socks_inbound::spawn(
+        client,
+        params.client_socks.clone(),
+        exit_country,
+        cancel.clone(),
+    );
 
     Ok(ArtiSession {
         client_socks: params.client_socks,
@@ -171,7 +177,7 @@ pub mod socks_inbound {
     //! IPv6 target address types are all routed through Tor as their
     //! natural textual form so the exit resolves them.
     use super::*;
-    use arti_client::{DataStream, StreamPrefs, TorAddr, TorClient};
+    use arti_client::{CountryCode, DataStream, StreamPrefs, TorAddr, TorClient};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
     use tor_rtcompat::tokio::TokioRustlsRuntime;
@@ -179,6 +185,7 @@ pub mod socks_inbound {
     pub fn spawn(
         client: TorClient<TokioRustlsRuntime>,
         listen: SocksEndpoint,
+        exit_country: String,
         cancel: CancellationToken,
     ) {
         tokio::spawn(async move {
@@ -190,7 +197,7 @@ pub mod socks_inbound {
                     return;
                 }
             };
-            tracing::info!(%addr, "arti: socks5 inbound listening");
+            tracing::info!(%addr, exit_country = %exit_country, "arti: socks5 inbound listening");
             loop {
                 tokio::select! {
                     _ = cancel.cancelled() => break,
@@ -198,9 +205,10 @@ pub mod socks_inbound {
                         Ok((stream, peer)) => {
                             let client = client.clone();
                             let creds = (listen.user.clone(), listen.pass.clone());
+                            let cc = exit_country.clone();
                             let cancel = cancel.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = handle(stream, client, creds, cancel).await {
+                                if let Err(e) = handle(stream, client, creds, cc, cancel).await {
                                     tracing::debug!(%peer, err = %e, "arti socks peer dropped");
                                 }
                             });
@@ -220,6 +228,7 @@ pub mod socks_inbound {
         mut stream: TcpStream,
         client: TorClient<TokioRustlsRuntime>,
         creds: (String, String),
+        exit_country: String,
         cancel: CancellationToken,
     ) -> std::io::Result<()> {
         // --- greeting ---------------------------------------------------
@@ -305,7 +314,20 @@ pub mod socks_inbound {
         // --- arti connect ----------------------------------------------
         let tor_addr = TorAddr::from((host.as_str(), port))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()))?;
-        let prefs = StreamPrefs::new();
+        let mut prefs = StreamPrefs::new();
+        if !exit_country.is_empty() {
+            // ISO 3166-1 alpha-2.  Arti 0.41 accepts two ASCII letters; we
+            // forward the user's picker value verbatim.  If the value does
+            // not parse (validator on arti's side), we fall back to "any".
+            match exit_country.parse::<CountryCode>() {
+                Ok(cc) => {
+                    prefs.exit_country(cc);
+                }
+                Err(e) => {
+                    tracing::warn!(%exit_country, err = %e, "invalid country code, ignoring");
+                }
+            }
+        }
         let connect_fut = client.connect_with_prefs(tor_addr, &prefs);
         let tor_stream: DataStream = tokio::select! {
             res = connect_fut => {
