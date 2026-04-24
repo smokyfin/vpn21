@@ -1,0 +1,215 @@
+//! leaf-based provider.
+//!
+//! Given a parsed [`Profile`], we synthesise a leaf JSON config that exposes
+//! a local SOCKS5 inbound (authenticated) and routes everything through a
+//! VLESS outbound with the user's REALITY / gRPC settings, then hand that
+//! config to [`leaf`] to run in-process.
+//!
+//! leaf is pulled from git with its *default* feature set; we do not cherry
+//! pick individual protocols because the user wants room to later swap
+//! trojan / shadowsocks / vmess in without rebuilding.
+//!
+//! This file always builds, but the real leaf integration is gated behind
+//! the `backend-leaf` cargo feature — the upstream leaf API is not yet
+//! stable and still moves between git revisions, so we isolate it here.
+
+use std::sync::Arc;
+
+use futures::future::BoxFuture;
+use futures::FutureExt;
+use serde_json::json;
+use tokio_util::sync::CancellationToken;
+
+use crate::config::Profile;
+use crate::errors::{Error, Result};
+use crate::secure_store::SocksEndpoint;
+
+use super::{TransportCapabilities, TransportConfig, TransportHandle, TransportProvider};
+
+#[derive(Default)]
+pub struct LeafProvider {
+    _priv: (),
+}
+
+impl LeafProvider {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Produces the leaf JSON config for a given session.  When `upstream`
+    /// is `Some`, the outbound is a SOCKS5 chain; otherwise it is the
+    /// profile's VLESS outbound.
+    pub(crate) fn build_config(cfg: &TransportConfig, upstream: Option<&SocksEndpoint>) -> String {
+        let inbound = json!({
+            "protocol": "socks",
+            "address": cfg.listen.host,
+            "port": cfg.listen.port,
+            "settings": {
+                "auth": "password",
+                "username": cfg.listen.user,
+                "password": cfg.listen.pass,
+                "udp": true
+            }
+        });
+
+        let outbound = match upstream {
+            Some(up) => json!({
+                "protocol": "socks",
+                "tag": "socks-out",
+                "settings": {
+                    "address": up.host,
+                    "port": up.port,
+                    "username": up.user,
+                    "password": up.pass
+                }
+            }),
+            None => Self::build_vless_outbound(&cfg.profile),
+        };
+
+        json!({
+            "log": { "level": "warn" },
+            "inbounds": [inbound],
+            "outbounds": [outbound, {"protocol": "direct", "tag": "direct"}],
+            "router": { "rules": [] },
+            "dns": { "servers": ["1.1.1.1", "1.0.0.1"] }
+        })
+        .to_string()
+    }
+
+    fn build_vless_outbound(profile: &Profile) -> serde_json::Value {
+        let v = &profile.pt_outbound;
+        let mut stream = json!({ "network": v.network });
+        if v.network == "grpc" {
+            stream["grpcSettings"] = json!({
+                "serviceName": v.grpc_service_name,
+                "multiMode": v.grpc_multi_mode
+            });
+        }
+        match v.security.as_str() {
+            "reality" => {
+                if let Some(r) = v.reality.as_ref() {
+                    stream["security"] = json!("reality");
+                    stream["realitySettings"] = json!({
+                        "serverName": r.server_name,
+                        "publicKey": r.public_key,
+                        "shortId": r.short_id,
+                        "fingerprint": r.fingerprint
+                    });
+                } else {
+                    stream["security"] = json!("none");
+                }
+            }
+            "tls" => stream["security"] = json!("tls"),
+            _ => stream["security"] = json!("none"),
+        }
+        json!({
+            "protocol": "vless",
+            "tag": "proxy",
+            "settings": {
+                "address": v.address,
+                "port": v.port,
+                "uuid": v.user_id,
+                "flow": v.flow
+            },
+            "streamSettings": stream
+        })
+    }
+}
+
+impl TransportProvider for LeafProvider {
+    fn id(&self) -> &'static str {
+        "leaf"
+    }
+
+    fn capabilities(&self) -> TransportCapabilities {
+        TransportCapabilities {
+            supports_vless: true,
+            supports_trojan: true,
+            supports_reality: true,
+            supports_grpc: true,
+            supports_ws: true,
+            supports_tcp: true,
+        }
+    }
+
+    fn start(
+        self: Arc<Self>,
+        cfg: TransportConfig,
+        cancel: CancellationToken,
+    ) -> BoxFuture<'static, Result<TransportHandle>> {
+        async move {
+            let config = Self::build_config(&cfg, None);
+            spawn_leaf_runtime(config, cfg.listen.clone(), cancel).await
+        }
+        .boxed()
+    }
+}
+
+/// Spawns a *second* leaf runtime whose outbound is a SOCKS5 chain to
+/// `upstream` — used to route arti's PT SOCKS through the real VLESS tunnel.
+pub async fn spawn_chained(
+    cfg: TransportConfig,
+    upstream: SocksEndpoint,
+    cancel: CancellationToken,
+) -> Result<TransportHandle> {
+    let config = LeafProvider::build_config(&cfg, Some(&upstream));
+    spawn_leaf_runtime(config, cfg.listen.clone(), cancel).await
+}
+
+#[cfg(feature = "backend-leaf")]
+async fn spawn_leaf_runtime(
+    config: String,
+    listen: SocksEndpoint,
+    cancel: CancellationToken,
+) -> Result<TransportHandle> {
+    use tokio::sync::oneshot;
+
+    // Runtime ids in leaf are u16.  We derive one from a tiny counter so the
+    // two leaf runtimes (TUN and PT) cannot collide within a process.
+    use std::sync::atomic::{AtomicU16, Ordering};
+    static NEXT_ID: AtomicU16 = AtomicU16::new(1);
+    let rt_id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
+
+    let (stopped_tx, stopped_rx) = oneshot::channel::<Result<()>>();
+    let config_clone = config.clone();
+    std::thread::Builder::new()
+        .name(format!("leaf-{rt_id}"))
+        .spawn(move || {
+            let opts = leaf::StartOptions {
+                config: leaf::Config::Str(config_clone),
+                runtime_opt: leaf::RuntimeOption::SingleThread,
+                #[cfg(feature = "auto-reload")]
+                auto_reload: false,
+            };
+            let res = leaf::start(rt_id, opts).map_err(|e| Error::Transport(e.to_string()));
+            let _ = stopped_tx.send(res);
+        })
+        .map_err(|e| Error::Transport(format!("spawn leaf thread: {e}")))?;
+
+    let cancel_for_task = cancel.clone();
+    tokio::spawn(async move {
+        cancel_for_task.cancelled().await;
+        leaf::shutdown(rt_id);
+    });
+
+    let stop_fn = move || {
+        async move {
+            leaf::shutdown(rt_id);
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), stopped_rx).await;
+            Ok::<_, Error>(())
+        }
+        .boxed()
+    };
+    Ok(TransportHandle::new("leaf", listen, stop_fn))
+}
+
+#[cfg(not(feature = "backend-leaf"))]
+async fn spawn_leaf_runtime(
+    _config: String,
+    listen: SocksEndpoint,
+    _cancel: CancellationToken,
+) -> Result<TransportHandle> {
+    tracing::warn!("leaf backend is disabled (enable `backend-leaf` feature for real datapath)");
+    let stop_fn = || async move { Ok::<_, Error>(()) }.boxed();
+    Ok(TransportHandle::new("leaf-stub", listen, stop_fn))
+}
