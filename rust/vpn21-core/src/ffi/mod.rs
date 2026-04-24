@@ -173,6 +173,37 @@ pub extern "C" fn vpn21_logs_clear() {
     logging::clear();
 }
 
+/// Desktop-only: provision a TUN interface on the host OS and return a
+/// JSON descriptor (`{ "ok": true, "tun": { "fd": ..., "mtu": ..., ...} }`)
+/// that Flutter can feed back into [`vpn21_start`].  On mobile this is a
+/// no-op that returns `{"ok": false, "error": "unsupported"}`.
+#[no_mangle]
+pub extern "C" fn vpn21_tun_provision() -> *mut c_char {
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    {
+        match crate::tun::platform::provision() {
+            Ok(cfg) => cstr_out(
+                serde_json::json!({
+                    "ok": true,
+                    "tun": {
+                        "fd": cfg.fd,
+                        "mtu": cfg.mtu,
+                        "ipv4": cfg.ipv4.to_string(),
+                        "mask": cfg.ipv4_mask,
+                        "dns_port": cfg.dns_listener_port,
+                    }
+                })
+                .to_string(),
+            ),
+            Err(e) => err(&e.to_string()),
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        err("unsupported on this platform")
+    }
+}
+
 /// Frees a C string previously returned by a `vpn21_*` function.
 #[allow(clippy::missing_safety_doc)]
 #[no_mangle]

@@ -40,7 +40,9 @@ impl LeafProvider {
     /// is `Some`, the outbound is a SOCKS5 chain; otherwise it is the
     /// profile's VLESS outbound.
     pub(crate) fn build_config(cfg: &TransportConfig, upstream: Option<&SocksEndpoint>) -> String {
-        let inbound = json!({
+        let mut inbounds = Vec::with_capacity(2);
+        // SOCKS5 always listens so the local DNS server / apps can dial in.
+        inbounds.push(json!({
             "protocol": "socks",
             "address": cfg.listen.host,
             "port": cfg.listen.port,
@@ -50,7 +52,21 @@ impl LeafProvider {
                 "password": cfg.listen.pass,
                 "udp": true
             }
-        });
+        }));
+        // TUN inbound only when the orchestrator gave us an fd (Android +
+        // desktop).  iOS runs a packet-flow loop outside of leaf.
+        if let Some(fd) = cfg.tun_fd {
+            inbounds.push(json!({
+                "protocol": "tun",
+                "settings": {
+                    "fd": fd,
+                    "address": cfg.tun_address.as_deref().unwrap_or("10.19.21.1/24"),
+                    "mtu": 1500,
+                    "fakeDns": false,
+                    "autoRoute": false
+                }
+            }));
+        }
 
         let outbound = match upstream {
             Some(up) => json!({
@@ -68,7 +84,7 @@ impl LeafProvider {
 
         json!({
             "log": { "level": "warn" },
-            "inbounds": [inbound],
+            "inbounds": inbounds,
             "outbounds": [outbound, {"protocol": "direct", "tag": "direct"}],
             "router": { "rules": [] },
             "dns": { "servers": ["1.1.1.1", "1.0.0.1"] }

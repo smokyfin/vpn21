@@ -64,9 +64,27 @@ and only need a different TUN provider and UI shell.
 ### Rust
 
 ```
-cargo check --workspace                  # lightweight, default features
-cargo test  -p vpn21-core                # config parser + smoke tests
-cargo build --release --features full    # real leaf + arti datapath
+cargo check --workspace                               # default (stub) features
+cargo test  -p vpn21-core                             # 10+ unit tests
+cargo build --release --features full                 # real leaf + arti datapath
 ```
 
-`rust-toolchain.toml` pins Rust 1.90.
+`rust-toolchain.toml` pins Rust 1.90. `cargo test --lib` covers the config
+parser, the secure-store permissions/RNG, and SOCKS URL encoding.
+
+### Mobile packaging
+
+```
+# Android: produces libvpn21.so in app/android/app/src/main/jniLibs/<abi>
+ANDROID_NDK_HOME=... scripts/build-android.sh --release
+
+# iOS: produces app/ios/PacketTunnel/Vpn21Core.xcframework
+scripts/build-ios.sh --release
+```
+
+### Desktop TUN
+
+The core exposes `vpn21_tun_provision` on Linux/macOS/Windows which opens
+a TUN device (Linux uses `/dev/net/tun`) and hands the fd back to Flutter.
+On macOS and Windows the call currently returns an error describing the
+helper that still needs to be shipped (utun / wintun).

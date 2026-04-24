@@ -25,7 +25,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev protobuf-compiler
-      # Leaf from git can take a while to vendor — allow up to 30 min.
       - name: cargo check
         run: cargo check --workspace --all-targets
         timeout-minutes: 30
+      - name: cargo test (default features)
+        run: cargo test --manifest-path rust/vpn21-core/Cargo.toml --lib
+        timeout-minutes: 15

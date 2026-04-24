@@ -38,6 +38,14 @@ pub struct TransportConfig {
     pub listen: SocksEndpoint,
     /// A stable, per-session tag that the provider may use for logging.
     pub session_tag: String,
+    /// When Some, the provider should also own a TUN inbound on this fd.
+    /// Used by leaf #1 on Android/desktop, where the platform has handed us
+    /// a file descriptor for the tunnel interface.  On iOS the packet-flow
+    /// is pumped by the extension itself and this is always `None`.
+    pub tun_fd: Option<i32>,
+    /// IPv4 address assigned to the TUN interface (CIDR), when applicable.
+    /// Example: `"10.19.21.1/24"`.
+    pub tun_address: Option<String>,
 }
 
 /// An opaque handle returned by [`TransportProvider::start`].
