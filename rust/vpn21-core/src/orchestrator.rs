@@ -112,6 +112,8 @@ impl Orchestrator {
             session_tag: format!("{session_tag}-pt"),
             tun_fd: None,
             tun_address: None,
+            tun_auto: false,
+            wintun_path: None,
         };
         self.set(SessionState::Bootstrapping, "starting transport", 15);
         let leaf_chain = picked.clone().start(leaf_chain_cfg, cancel.clone()).await?;
@@ -129,12 +131,19 @@ impl Orchestrator {
 
         // --- leaf #1 (TUN → SOCKS), upstream = arti --------------------
         let leaf_tun_listen = SocksEndpoint::new_loopback()?;
+        let tun_fd_opt = if tun.fd >= 0 { Some(tun.fd) } else { None };
+        // macOS + Windows: no fd, let leaf auto-provision utun/wintun.
+        let tun_auto =
+            tun_fd_opt.is_none() && (cfg!(target_os = "macos") || cfg!(target_os = "windows"));
+        let wintun_path = locate_wintun();
         let leaf_tun_cfg = TransportConfig {
             profile: profile.clone(),
             listen: leaf_tun_listen.clone(),
             session_tag: format!("{session_tag}-tun"),
-            tun_fd: if tun.fd >= 0 { Some(tun.fd) } else { None },
+            tun_fd: tun_fd_opt,
             tun_address: Some(format!("{}/{}", tun.ipv4, tun.ipv4_mask)),
+            tun_auto,
+            wintun_path,
         };
         self.set(SessionState::Connecting, "starting tunnel", 60);
         let leaf_tun =
@@ -206,7 +215,12 @@ impl Orchestrator {
 fn adopt_tun(tun: &TunConfig, _upstream: &SocksEndpoint) -> Result<()> {
     // iOS owns the packet flow inside the PacketTunnelExtension, so a -1
     // here is explicitly expected; the datapath runs under `embedded-tun`.
-    if tun.fd < 0 && !cfg!(feature = "embedded-tun") {
+    // macOS/Windows also accept -1 — leaf auto-provisions utun/wintun.
+    let fd_ok = tun.fd >= 0
+        || cfg!(feature = "embedded-tun")
+        || cfg!(target_os = "macos")
+        || cfg!(target_os = "windows");
+    if !fd_ok {
         return Err(Error::Tunnel(format!("invalid tun fd {}", tun.fd)));
     }
     tracing::info!(
@@ -220,4 +234,40 @@ fn adopt_tun(tun: &TunConfig, _upstream: &SocksEndpoint) -> Result<()> {
     // emit it when building the leaf config for inbound=#1 and let the
     // runtime pick it up at start().  See `transport::leaf_impl::build_config`.
     Ok(())
+}
+
+/// Looks up a bundled `wintun.dll`.  Search order:
+///   1) `VPN21_WINTUN_PATH` environment variable (user override)
+///   2) next to the running binary
+///   3) current working directory
+///   4) system32 (bundled-with-system case)
+fn locate_wintun() -> Option<String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(p) = std::env::var("VPN21_WINTUN_PATH") {
+            if std::path::Path::new(&p).exists() {
+                return Some(p);
+            }
+        }
+        let candidates = [
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.join("wintun.dll"))),
+            Some(std::path::PathBuf::from("wintun.dll")),
+            Some(std::path::PathBuf::from(
+                "C:\\Windows\\System32\\wintun.dll",
+            )),
+        ];
+        for c in candidates.into_iter().flatten() {
+            if c.exists() {
+                return Some(c.to_string_lossy().into_owned());
+            }
+        }
+        tracing::warn!("wintun.dll not found; leaf tun auto-mode will fail on Windows");
+        None
+    }
 }
