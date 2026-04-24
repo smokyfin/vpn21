@@ -68,13 +68,13 @@ class HomePage extends ConsumerWidget {
       case VpnStage.idle:
         return 'Tap the shield to connect through Tor.';
       case VpnStage.bootstrapping:
-        return 'Bootstrapping — ${s.detail}';
+        return 'Bootstrapping \u2014 ${s.detail}';
       case VpnStage.connecting:
-        return 'Building circuit — ${s.detail}';
+        return 'Building circuit \u2014 ${s.detail}';
       case VpnStage.connected:
         return 'You are protected.';
       case VpnStage.disconnecting:
-        return 'Closing circuit…';
+        return 'Closing circuit\u2026';
       case VpnStage.error:
         return 'Error: ${s.detail}';
     }
@@ -131,18 +131,23 @@ class _StatusRing extends StatelessWidget {
       VpnStage.error => c.error,
       _ => c.secondary,
     };
+    final isActive = status.stage != VpnStage.idle;
+
     return SizedBox(
       width: size,
       height: size,
       child: Stack(
         alignment: Alignment.center,
         children: [
+          // Glow layer behind the ring when connected.
+          if (status.stage == VpnStage.connected)
+            _PulseGlow(size: size, color: color),
           TweenAnimationBuilder<double>(
             tween: Tween(begin: 0, end: progress),
             duration: const Duration(milliseconds: 450),
             builder: (_, v, __) => SizedBox.expand(
               child: CircularProgressIndicator(
-                value: status.stage == VpnStage.idle ? 0 : v,
+                value: isActive ? v : 0,
                 strokeWidth: 6,
                 color: color,
                 backgroundColor: Colors.white.withValues(alpha: 0.06),
@@ -193,5 +198,64 @@ class _StatusRing extends StatelessWidget {
       case VpnStage.error:
         return 'ERROR';
     }
+  }
+}
+
+/// Pulsing glow behind the status ring when connected.
+class _PulseGlow extends StatefulWidget {
+  const _PulseGlow({required this.size, required this.color});
+  final double size;
+  final Color color;
+
+  @override
+  State<_PulseGlow> createState() => _PulseGlowState();
+}
+
+class _PulseGlowState extends State<_PulseGlow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        final t = _ctrl.value;
+        final scale = 1.0 + t * 0.12;
+        final opacity = 0.15 + t * 0.1;
+        return Transform.scale(
+          scale: scale,
+          child: Container(
+            width: widget.size,
+            height: widget.size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: widget.color.withValues(alpha: opacity),
+                  blurRadius: 60,
+                  spreadRadius: 10,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }

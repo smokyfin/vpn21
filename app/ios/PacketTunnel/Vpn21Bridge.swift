@@ -11,8 +11,10 @@ enum Vpn21Bridge {
     static func start(profileJson: String, packetFlow: NEPacketTunnelFlow) {
         guard !running else { return }
         running = true
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            running = false
+            return
+        }
         let appDir = appSupport.appendingPathComponent("vpn21", isDirectory: true).path
         try? FileManager.default.createDirectory(atPath: appDir, withIntermediateDirectories: true)
 

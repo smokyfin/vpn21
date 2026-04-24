@@ -19,11 +19,11 @@ class ConnectButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Theme.of(context).colorScheme;
     final isConnected = status.stage == VpnStage.connected;
-    final isBusy = status.stage == VpnStage.bootstrapping ||
-        status.stage == VpnStage.connecting ||
-        status.stage == VpnStage.disconnecting;
+    final isConnecting = status.stage == VpnStage.bootstrapping ||
+        status.stage == VpnStage.connecting;
+    final isDisconnecting = status.stage == VpnStage.disconnecting;
 
-    if (isBusy) {
+    if (isDisconnecting) {
       return FilledButton.tonal(
         onPressed: null,
         style: FilledButton.styleFrom(
@@ -33,16 +33,38 @@ class ConnectButton extends StatelessWidget {
         child: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
+            SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
             SizedBox(width: 12),
-            Text('Working…'),
+            Text('Stopping…'),
           ],
         ),
       );
+    }
+
+    if (isConnecting) {
+      return OutlinedButton(
+        onPressed: onDisconnect,
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(220, 52),
+          foregroundColor: c.error,
+          side: BorderSide(color: c.error.withValues(alpha: 0.5), width: 1.4),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: c.error.withValues(alpha: 0.7),
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text('Cancel', style: TextStyle(letterSpacing: 1.2)),
+          ],
+        ),
+      ).animate().fade(duration: 200.ms);
     }
 
     if (isConnected) {
