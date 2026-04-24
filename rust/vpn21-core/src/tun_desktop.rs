@@ -1,9 +1,10 @@
-//! Desktop TUN helpers.
+//! Desktop TUN helpers — adapter layer on top of [`crate::tun::platform`].
 //!
-//! On desktop platforms (Linux, macOS, Windows) the Dart side spawns a
-//! privileged helper or uses admin APIs to create the TUN, then passes us the
-//! resulting fd (Unix) or handle (Windows).  This module provides the
-//! platform-specific constants and validation.
+//! This module exists so the FFI / orchestrator can build a [`TunConfig`]
+//! from raw values supplied by platform glue (fd from a helper binary, from
+//! `vpn21_tun_provision`, or from a placeholder wintun handle).  The real
+//! OS-specific provisioning (utun / `/dev/net/tun` / wintun) lives in
+//! [`crate::tun::platform`] and is invoked directly from FFI.
 
 use std::net::Ipv4Addr;
 
@@ -18,7 +19,8 @@ pub const DEFAULT_DNS_PORT: u16 = 53;
 
 /// Builds a [`TunConfig`] from the values returned by the desktop platform
 /// channel.  `fd` may be -1 on systems (like macOS) where the TUN is owned
-/// by the system extension and only a sentinel is returned.
+/// by the system extension and only a sentinel is returned, or on Windows
+/// where leaf itself drives wintun through `wintun.dll`.
 pub fn desktop_tun_config(
     fd: i32,
     mtu: Option<u16>,
@@ -26,9 +28,9 @@ pub fn desktop_tun_config(
     mask: Option<u8>,
     dns_port: Option<u16>,
 ) -> Result<TunConfig> {
-    if fd < 0 && !cfg!(target_os = "macos") {
+    if fd < 0 && !cfg!(any(target_os = "macos", target_os = "windows")) {
         return Err(Error::Tunnel(format!(
-            "desktop: invalid tun fd {fd} (only macOS allows sentinel fd)"
+            "desktop: invalid tun fd {fd} (sentinel only allowed on macOS/Windows)"
         )));
     }
     Ok(TunConfig {
@@ -38,42 +40,4 @@ pub fn desktop_tun_config(
         ipv4_mask: mask.unwrap_or(DEFAULT_TUN_MASK),
         dns_listener_port: dns_port.unwrap_or(DEFAULT_DNS_PORT),
     })
-}
-
-/// On Linux, creates a TUN device using the `tun` crate or raw `ioctl`.
-/// This is a placeholder: the real implementation will use `TUNSETIFF`.
-#[cfg(target_os = "linux")]
-pub fn create_tun_linux(name: &str) -> Result<i32> {
-    use std::fs::OpenOptions;
-    use std::os::unix::io::IntoRawFd;
-
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open("/dev/net/tun")
-        .map_err(|e| Error::Tunnel(format!("open /dev/net/tun: {e}")))?;
-    let fd = file.into_raw_fd();
-    tracing::info!(fd, name, "opened tun device (raw)");
-    // The actual TUNSETIFF ioctl + route configuration is performed by the
-    // desktop helper binary that runs with elevated privileges.
-    Ok(fd)
-}
-
-/// Placeholder for macOS TUN creation.
-#[cfg(target_os = "macos")]
-pub fn create_tun_macos() -> Result<i32> {
-    // On macOS the `utun` device is created via the system extension (or a
-    // privileged helper).  We return -1 as a sentinel; the system extension
-    // owns the actual datapath.
-    tracing::info!("macOS: TUN owned by system extension, returning sentinel fd");
-    Ok(-1)
-}
-
-/// Placeholder for Windows TUN creation.
-#[cfg(target_os = "windows")]
-pub fn create_tun_windows() -> Result<i32> {
-    // On Windows we use WinTUN or a TAP-Windows adapter.  The driver handle
-    // is obtained by the desktop helper and encoded as a raw fd for us.
-    tracing::warn!("Windows TUN: not yet implemented");
-    Err(Error::Tunnel("Windows TUN not yet implemented".into()))
 }

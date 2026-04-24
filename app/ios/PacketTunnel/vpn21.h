@@ -10,6 +10,8 @@
 extern "C" {
 #endif
 
+#include <stddef.h>
+
 int  vpn21_init(const char* app_dir, int verbose);
 char* vpn21_profile_parse(const char* id, const char* label, const char* json);
 char* vpn21_start(const char* profile_json, int tun_fd, int mtu,
@@ -18,7 +20,17 @@ char* vpn21_stop(void);
 char* vpn21_status(void);
 char* vpn21_logs(int limit);
 void  vpn21_logs_clear(void);
+char* vpn21_tun_provision(void);
 void  vpn21_string_free(char* s);
+
+// iOS packet-pump bridge — Swift drives this from `NEPacketTunnelFlow`.
+void  vpn21_ios_pump_start(void);
+void  vpn21_ios_pump_stop(void);
+int   vpn21_ios_pump_push_inbound(const uint8_t* data, size_t len);
+// Drains outbound packets with TLV framing: [u16 BE len][bytes]...
+// Returns bytes written (>= 0) or -1 on invalid args.
+long  vpn21_ios_pump_drain_outbound(uint8_t* buf, size_t cap, size_t max_packets);
+char* vpn21_ios_pump_stats(void);
 
 #ifdef __cplusplus
 }

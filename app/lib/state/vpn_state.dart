@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../bridge/native.dart';
+import '../widgets/country_picker.dart';
 import 'config_state.dart';
 
 enum VpnStage { idle, bootstrapping, connecting, connected, disconnecting, error }
@@ -69,10 +70,17 @@ class VpnController extends StateNotifier<VpnStatus> {
       state = state.copyWith(stage: VpnStage.error, detail: 'no profile');
       return;
     }
+    // Apply the user's exit-country selection (if any) to the profile just
+    // before we hand it to the Rust core.  Null / empty means "any country".
+    final country = _ref.read(selectedCountryProvider);
+    final profileWithCountry = <String, dynamic>{
+      ...profile,
+      'exit_country': country ?? '',
+    };
     state = state.copyWith(stage: VpnStage.bootstrapping, detail: 'requesting tun', progress: 2);
     try {
-      final tun = await Vpn21Native.instance.requestTun(profile);
-      await Vpn21Native.instance.start(profile: profile, tun: tun);
+      final tun = await Vpn21Native.instance.requestTun(profileWithCountry);
+      await Vpn21Native.instance.start(profile: profileWithCountry, tun: tun);
     } catch (e) {
       state = state.copyWith(stage: VpnStage.error, detail: '$e');
     }

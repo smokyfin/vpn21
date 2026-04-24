@@ -32,7 +32,7 @@ dirs = "5"
 libc = "0.2"
 
 # Core dependencies for VPN pipeline
-arti-client = { version = "0.41", default-features = false, features = ["tokio", "rustls", "compression", "bridge-client", "pt-client"] }
+arti-client = { version = "0.41", default-features = false, features = ["tokio", "rustls", "compression", "bridge-client", "pt-client", "geoip"] }
 tor-rtcompat = { version = "0.41", default-features = false, features = ["tokio", "rustls"] }
 tor-config = "0.41"
 
