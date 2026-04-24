@@ -63,7 +63,7 @@ class LogsPage extends ConsumerWidget {
                             ),
                             children: [
                               TextSpan(
-                                text: df.format(DateTime.fromMillisecondsSinceEpoch(ts)) + '  ',
+                                text: '${df.format(DateTime.fromMillisecondsSinceEpoch(ts))}  ',
                                 style: TextStyle(color: Colors.white.withValues(alpha: 0.45)),
                               ),
                               TextSpan(

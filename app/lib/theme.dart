@@ -6,7 +6,7 @@ class Vpn21Theme {
     const bg = Color(0xFF0B0D10);
     const surface = Color(0xFF14171C);
     const accent = Color(0xFF7CF0A7);
-    final scheme = const ColorScheme.dark(
+    const scheme = ColorScheme.dark(
       primary: accent,
       secondary: Color(0xFF6FC2FF),
       surface: surface,
