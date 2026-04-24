@@ -32,8 +32,8 @@ dirs = "5"
 libc = "0.2"
 
 # Core dependencies for VPN pipeline
-arti-client = "0.41"
-tor-rtcompat = "0.41"
+arti-client = { version = "0.41", default-features = false, features = ["tokio", "rustls", "compression", "bridge-client", "pt-client"] }
+tor-rtcompat = { version = "0.41", default-features = false, features = ["tokio", "rustls"] }
 tor-config = "0.41"
 
 # Pluggable transport: leaf pulled from git as requested, with full default features

@@ -42,6 +42,9 @@ tor-rtcompat = { workspace = true, optional = true }
 tor-config = { workspace = true, optional = true }
 leaf = { workspace = true, optional = true }
 
+[dev-dependencies]
+tempfile = "3"
+
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
 android_logger = "0.13"
@@ -59,3 +62,6 @@ backend-arti = ["dep:arti-client", "dep:tor-rtcompat", "dep:tor-config"]
 full = ["backend-leaf", "backend-arti"]
 # Platforms where we embed our own TUN pump (today only iOS).
 embedded-tun = []
+# Mirrors leaf's `auto-reload` feature; lets us gate calls to
+# `StartOptions::auto_reload` without tripping unexpected_cfgs lints.
+auto-reload = ["leaf?/auto-reload"]

@@ -259,5 +259,54 @@ mod tests {
         assert_eq!(p.pt_outbound.security, "reality");
         assert_eq!(p.pt_outbound.port, 8090);
         assert_eq!(p.doh_server, "https://dns.google/dns-query");
+        assert!(p.pt_outbound.reality.is_some());
+        let r = p.pt_outbound.reality.unwrap();
+        assert_eq!(r.server_name, "urentbike.ru");
+        assert_eq!(r.short_id, "6b2f4e6ac9b1d2f0");
+    }
+
+    #[test]
+    fn rejects_missing_doh() {
+        let raw = r#"{"bridge_rsa_id":"x","bridge_ed25519_id":"y","outbounds":[]}"#;
+        assert!(Profile::from_json("a", "b", raw).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_doh_url() {
+        let raw = r#"{"bridge_rsa_id":"x","bridge_ed25519_id":"y","doh_server":"not a url","outbounds":[]}"#;
+        let err = Profile::from_json("a", "b", raw).unwrap_err().to_string();
+        assert!(err.contains("doh_server"), "got: {err}");
+    }
+
+    #[test]
+    fn accepts_doh_server_ip() {
+        let raw = r#"{"bridge_rsa_id":"x","bridge_ed25519_id":"y","doh_server":"https://dns.google/dns-query","doh_server_ip":"8.8.8.8","outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"1.2.3.4","port":443,"users":[{"id":"u"}]}]},"streamSettings":{"network":"grpc","grpcSettings":{"serviceName":"g"},"security":"none"}}]}"#;
+        let p = Profile::from_json("a", "b", raw).unwrap();
+        assert_eq!(p.doh_server_ip.unwrap().to_string(), "8.8.8.8");
+    }
+
+    #[test]
+    fn rejects_invalid_doh_server_ip() {
+        let raw = r#"{"bridge_rsa_id":"x","bridge_ed25519_id":"y","doh_server":"https://dns.google/dns-query","doh_server_ip":"not-an-ip","outbounds":[]}"#;
+        let err = Profile::from_json("a", "b", raw).unwrap_err().to_string();
+        assert!(err.contains("doh_server_ip"), "got: {err}");
+    }
+
+    #[test]
+    fn skips_direct_outbound() {
+        // When multiple outbounds are present, we must pick the vless one
+        // and ignore `direct`/`block` that Xray profiles often ship with.
+        let raw = r#"{
+            "bridge_rsa_id": "x", "bridge_ed25519_id": "y",
+            "doh_server": "https://dns.google/dns-query",
+            "outbounds": [
+                {"protocol":"freedom","tag":"direct"},
+                {"protocol":"blackhole","tag":"block"},
+                {"protocol":"vless","settings":{"vnext":[{"address":"1.2.3.4","port":443,"users":[{"id":"u"}]}]},"streamSettings":{"network":"tcp","security":"none"}}
+            ]
+        }"#;
+        let p = Profile::from_json("a", "b", raw).unwrap();
+        assert_eq!(p.pt_outbound.port, 443);
+        assert_eq!(p.pt_outbound.user_id, "u");
     }
 }

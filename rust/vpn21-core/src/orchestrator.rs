@@ -110,6 +110,8 @@ impl Orchestrator {
             profile: profile.clone(),
             listen: leaf_chain_listen.clone(),
             session_tag: format!("{session_tag}-pt"),
+            tun_fd: None,
+            tun_address: None,
         };
         self.set(SessionState::Bootstrapping, "starting transport", 15);
         let leaf_chain = picked.clone().start(leaf_chain_cfg, cancel.clone()).await?;
@@ -131,6 +133,8 @@ impl Orchestrator {
             profile: profile.clone(),
             listen: leaf_tun_listen.clone(),
             session_tag: format!("{session_tag}-tun"),
+            tun_fd: if tun.fd >= 0 { Some(tun.fd) } else { None },
+            tun_address: Some(format!("{}/{}", tun.ipv4, tun.ipv4_mask)),
         };
         self.set(SessionState::Connecting, "starting tunnel", 60);
         let leaf_tun =
