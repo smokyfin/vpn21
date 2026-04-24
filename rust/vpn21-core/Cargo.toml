@@ -1,0 +1,61 @@
+[package]
+name = "vpn21-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core orchestrator for the vpn21 cross-platform VPN client"
+
+[lib]
+name = "vpn21"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+parking_lot = { workspace = true }
+once_cell = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+url = { workspace = true }
+hickory-proto = { workspace = true }
+hickory-resolver = { workspace = true }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+dirs = { workspace = true }
+libc = { workspace = true }
+
+# The heavy integrations are optional: we want `cargo check` on a plain
+# default build to succeed even on a box that has not yet vendored the
+# ~1 GB of dependencies these pull in.  Enable `backend-leaf` +
+# `backend-arti` for a full, end-to-end build.
+arti-client = { workspace = true, optional = true }
+tor-rtcompat = { workspace = true, optional = true }
+tor-config = { workspace = true, optional = true }
+leaf = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+android_logger = "0.13"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+oslog = "0.2"
+
+[features]
+default = []
+# Enables the real leaf-based transport and TUN adoption.
+backend-leaf = ["dep:leaf"]
+# Enables the real arti-client pipeline.
+backend-arti = ["dep:arti-client", "dep:tor-rtcompat", "dep:tor-config"]
+# Full end-to-end build.
+full = ["backend-leaf", "backend-arti"]
+# Platforms where we embed our own TUN pump (today only iOS).
+embedded-tun = []

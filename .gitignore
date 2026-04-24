@@ -1,0 +1,41 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Flutter
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/.pub-cache/
+app/build/
+app/.idea/
+app/.vscode/
+app/pubspec.lock
+app/ios/Pods/
+app/ios/Podfile.lock
+app/ios/.symlinks/
+app/ios/Flutter/Flutter.framework
+app/ios/Flutter/Flutter.podspec
+app/ios/Flutter/Generated.xcconfig
+app/ios/Flutter/flutter_export_environment.sh
+app/ios/DerivedData/
+app/android/.gradle/
+app/android/captures/
+app/android/local.properties
+app/android/gradle-wrapper.jar
+app/android/app/src/main/jniLibs/
+app/macos/Pods/
+app/macos/.symlinks/
+app/linux/flutter/ephemeral/
+app/windows/flutter/ephemeral/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp

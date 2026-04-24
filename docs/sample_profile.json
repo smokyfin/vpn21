@@ -1,0 +1,58 @@
+{
+  "log": { "loglevel": "debug" },
+  "dns": {
+    "queryStrategy": "UseIP",
+    "servers": ["1.1.1.1", "1.0.0.1"]
+  },
+  "routing": {
+    "domainMatcher": "hybrid",
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      { "type": "field", "protocol": ["bittorrent"], "outboundTag": "direct" },
+      {
+        "type": "field",
+        "domain": [
+          "apple-cloudkit.com", "apple.co", "apple.com", "apple.news",
+          "apple.com.cn", "cdn-apple.com", "push.apple.com",
+          "push-apple.com.akadns.net", "api.push.apple.com", "mtalk.google.com"
+        ],
+        "outboundTag": "direct"
+      }
+    ]
+  },
+  "inbounds": [],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "217.177.47.30",
+            "port": 8090,
+            "users": [
+              { "id": "ea183a5a-a968-4343-b468-7057b1384770", "encryption": "none", "flow": "" }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "grpc",
+        "grpcSettings": { "mode": false, "authority": "", "serviceName": "grpc" },
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "urentbike.ru",
+          "show": false,
+          "publicKey": "aEikAoKpvBlef3fmB956k_I7X3iI2oQ032Zs3YRAiEw",
+          "shortId": "6b2f4e6ac9b1d2f0",
+          "fingerprint": "qq"
+        }
+      }
+    },
+    { "tag": "direct", "protocol": "freedom" },
+    { "tag": "block", "protocol": "blackhole" }
+  ],
+  "bridge_rsa_id": "715213AEA5BBE71AB2E9E1AFEE02D0170206021F",
+  "bridge_ed25519_id": "Rq4fdFNepS2oTFnyNrQon9FDWi46m5OFZKAGVFmMe9I",
+  "doh_server": "https://dns.google/dns-query"
+}
