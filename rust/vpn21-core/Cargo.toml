@@ -52,6 +52,9 @@ android_logger = "0.13"
 [target.'cfg(target_os = "ios")'.dependencies]
 oslog = "0.2"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+libloading = "0.8"
+
 [features]
 default = []
 # Enables the real leaf-based transport and TUN adoption.
