@@ -268,29 +268,33 @@ pub unsafe extern "C" fn vpn21_ios_pump_drain_outbound(
     if buf.is_null() || cap == 0 {
         return -1;
     }
-    let pkts = crate::ios_pump::global().drain_outbound(max_packets);
-    let mut out = std::slice::from_raw_parts_mut(buf, cap);
+    let mut pkts = crate::ios_pump::global().drain_outbound(max_packets);
+    let out = std::slice::from_raw_parts_mut(buf, cap);
     let mut written: usize = 0;
-    for p in &pkts {
+    let mut first_unwritten: Option<usize> = None;
+    for (idx, p) in pkts.iter().enumerate() {
+        // A single packet larger than u16::MAX cannot be framed with our
+        // TLV length field; spill it back rather than silently truncate.
+        if p.len() > u16::MAX as usize {
+            first_unwritten = Some(idx);
+            break;
+        }
         let need = 2 + p.len();
         if written + need > cap {
-            // Spill the rest back; don't lie to the caller about a partial packet.
-            // We push the unwritten tail back into the queue to preserve ordering.
-            let remaining: Vec<Vec<u8>> = pkts
-                [pkts.iter().position(|x| std::ptr::eq(x, p)).unwrap()..]
-                .iter()
-                .cloned()
-                .collect();
-            for r in remaining.into_iter().rev() {
-                crate::ios_pump::global().push_outbound(r);
-            }
+            first_unwritten = Some(idx);
             break;
         }
         let len = p.len() as u16;
-        out[..2].copy_from_slice(&len.to_be_bytes());
-        out[2..2 + p.len()].copy_from_slice(p);
-        out = &mut out[need..];
+        out[written..written + 2].copy_from_slice(&len.to_be_bytes());
+        out[written + 2..written + need].copy_from_slice(p);
         written += need;
+    }
+    // Spill anything we could not fit back to the *front* of the queue in
+    // original FIFO order, without re-counting tx_packets or touching the
+    // running flag.  See `IosPump::restore_outbound_front`.
+    if let Some(idx) = first_unwritten {
+        let tail: Vec<Vec<u8>> = pkts.drain(idx..).collect();
+        crate::ios_pump::global().restore_outbound_front(tail);
     }
     written as isize
 }

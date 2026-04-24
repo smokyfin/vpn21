@@ -109,6 +109,26 @@ impl IosPump {
         g.outbound.drain(..n).collect()
     }
 
+    /// Restores previously-drained outbound packets at the *front* of the
+    /// queue, preserving their original FIFO order.  Unlike [`push_outbound`]
+    /// this does not touch `tx_packets` (those packets were already counted
+    /// when first enqueued) and does not check the running flag (we are just
+    /// undoing a drain, not producing new traffic).
+    ///
+    /// Used by the FFI spill-back path when the caller-supplied buffer was
+    /// too small to hold every drained packet.
+    pub(crate) fn restore_outbound_front(&self, pkts: Vec<Vec<u8>>) {
+        if pkts.is_empty() {
+            return;
+        }
+        let mut g = self.inner.lock();
+        // Push in reverse so that after all inserts the order is
+        // [pkts[0], pkts[1], ..., pkts[n-1], ...existing_queue...].
+        for p in pkts.into_iter().rev() {
+            g.outbound.push_front(p);
+        }
+    }
+
     /// Statistics snapshot for the logs tab.
     pub fn stats(&self) -> IosPumpStats {
         let g = self.inner.lock();
@@ -163,6 +183,53 @@ mod tests {
         assert_eq!(got, vec![vec![0u8], vec![1], vec![2]]);
         let got = p.drain_outbound(10);
         assert_eq!(got, vec![vec![3u8], vec![4]]);
+    }
+
+    #[test]
+    fn restore_outbound_front_preserves_fifo_and_counters() {
+        let p = IosPump::default();
+        p.start();
+        for i in 0..5u8 {
+            assert!(p.push_outbound(vec![i]));
+        }
+        // Simulate a partial drain: buffer only fits two of five.
+        let drained = p.drain_outbound(5);
+        let fitted: Vec<_> = drained[..2].to_vec();
+        let spilled: Vec<_> = drained[2..].to_vec();
+        // Sanity: first two fit, last three spill.
+        assert_eq!(fitted, vec![vec![0u8], vec![1]]);
+        assert_eq!(spilled, vec![vec![2u8], vec![3], vec![4]]);
+
+        let stats_before = p.stats();
+        p.restore_outbound_front(spilled);
+        let stats_after = p.stats();
+        // tx_packets must NOT change on restore (packets were already
+        // counted when first enqueued via push_outbound).
+        assert_eq!(stats_before.tx_packets, stats_after.tx_packets);
+        assert_eq!(stats_after.outbound_queued, 3);
+
+        // Subsequent drain must return the spilled packets in their
+        // original order, not reversed.
+        let got = p.drain_outbound(10);
+        assert_eq!(got, vec![vec![2u8], vec![3], vec![4]]);
+    }
+
+    #[test]
+    fn restore_outbound_front_ignores_running_flag() {
+        // After stop() we must still be able to clear the in-flight tail
+        // back into the queue — but a subsequent start() should see an
+        // empty queue because stop() clears it.
+        let p = IosPump::default();
+        p.start();
+        p.push_outbound(vec![1]);
+        p.push_outbound(vec![2]);
+        let drained = p.drain_outbound(2);
+        p.stop();
+        // `stop` cleared the queue; restore still works (no-op from the
+        // caller's perspective is fine — but no panic).
+        p.restore_outbound_front(drained);
+        p.start();
+        assert!(p.drain_outbound(10).is_empty());
     }
 
     #[test]
