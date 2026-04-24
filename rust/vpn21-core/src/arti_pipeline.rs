@@ -481,6 +481,22 @@ pub mod socks5_proto {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        // Validate RFC 1929 / 1928 length fields before any writes: all three
+        // are encoded as a single `u8`, so a silent `as u8` truncation would
+        // desynchronise the wire protocol (the server would read later bytes
+        // as the next length field).
+        if user.len() > 255 || pass.len() > 255 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "user/pass must be ≤ 255 bytes (RFC 1929)",
+            ));
+        }
+        if host.len() > 255 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "hostname must be ≤ 255 bytes (RFC 1928 ATYP=0x03)",
+            ));
+        }
         s.write_all(&[0x05, 0x01, 0x02]).await?;
         let mut sel = [0u8; 2];
         s.read_exact(&mut sel).await?;
@@ -587,6 +603,36 @@ mod tests {
         client.read_exact(&mut rep).await.unwrap();
         assert_eq!(rep[1], 0x07, "reply should be command-not-supported");
         server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn client_connect_rejects_oversized_user() {
+        let (mut client, _server) = duplex(16);
+        let long = "u".repeat(256);
+        let err = client_connect(&mut client, &long, "p", "h", 1)
+            .await
+            .expect_err("oversized user must be rejected");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn client_connect_rejects_oversized_pass() {
+        let (mut client, _server) = duplex(16);
+        let long = "p".repeat(300);
+        let err = client_connect(&mut client, "u", &long, "h", 1)
+            .await
+            .expect_err("oversized pass must be rejected");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn client_connect_rejects_oversized_host() {
+        let (mut client, _server) = duplex(16);
+        let long = "a".repeat(256);
+        let err = client_connect(&mut client, "u", "p", &long, 1)
+            .await
+            .expect_err("oversized host must be rejected");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     }
 }
 
