@@ -20,14 +20,20 @@ app/ios/Flutter/Flutter.framework
 app/ios/Flutter/Flutter.podspec
 app/ios/Flutter/Generated.xcconfig
 app/ios/Flutter/flutter_export_environment.sh
+app/ios/Flutter/ephemeral/
 app/ios/DerivedData/
+app/ios/Runner/GeneratedPluginRegistrant.h
+app/ios/Runner/GeneratedPluginRegistrant.m
 app/android/.gradle/
 app/android/captures/
 app/android/local.properties
 app/android/gradle-wrapper.jar
+app/android/app/src/main/java/io/flutter/plugins/
 app/android/app/src/main/jniLibs/
-app/macos/Pods/
-app/macos/.symlinks/
+app/macos/
+app/linux/flutter/generated_plugin_registrant.cc
+app/linux/flutter/generated_plugin_registrant.h
+app/linux/flutter/generated_plugins.cmake
 app/linux/flutter/ephemeral/
 app/windows/flutter/ephemeral/
 
