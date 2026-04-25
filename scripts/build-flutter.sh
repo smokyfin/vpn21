@@ -58,7 +58,7 @@ build_one() {
   case "$p" in
     android)
       "$SCRIPTS/build-android.sh" $RUST_FLAG
-      cd "$APP" && "$FLUTTER" build apk $PROFILE_FLAG "${FORWARD[@]}"
+      cd "$APP" && "$FLUTTER" build apk $PROFILE_FLAG ${FORWARD[@]+"${FORWARD[@]}"}
       ;;
     ios)
       "$SCRIPTS/build-ios.sh" $RUST_FLAG
@@ -66,19 +66,19 @@ build_one() {
       # build phase wired up in app/ios/Podfile + Runner.xcodeproj.  We
       # build with --no-codesign by default so CI / dev shells without a
       # signing identity still produce a runnable .app.
-      cd "$APP" && "$FLUTTER" build ios $PROFILE_FLAG --no-codesign "${FORWARD[@]}"
+      cd "$APP" && "$FLUTTER" build ios $PROFILE_FLAG --no-codesign ${FORWARD[@]+"${FORWARD[@]}"}
       ;;
     macos)
       "$SCRIPTS/build-macos.sh" $RUST_FLAG
-      cd "$APP" && "$FLUTTER" build macos $PROFILE_FLAG "${FORWARD[@]}"
+      cd "$APP" && "$FLUTTER" build macos $PROFILE_FLAG ${FORWARD[@]+"${FORWARD[@]}"}
       ;;
     linux)
       "$SCRIPTS/build-linux.sh" $RUST_FLAG
-      cd "$APP" && "$FLUTTER" build linux $PROFILE_FLAG "${FORWARD[@]}"
+      cd "$APP" && "$FLUTTER" build linux $PROFILE_FLAG ${FORWARD[@]+"${FORWARD[@]}"}
       ;;
     windows)
       "$SCRIPTS/build-windows.sh" $RUST_FLAG
-      cd "$APP" && "$FLUTTER" build windows $PROFILE_FLAG "${FORWARD[@]}"
+      cd "$APP" && "$FLUTTER" build windows $PROFILE_FLAG ${FORWARD[@]+"${FORWARD[@]}"}
       ;;
     *)
       echo "error: unknown platform: $p" >&2
