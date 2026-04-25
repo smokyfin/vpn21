@@ -66,6 +66,10 @@ class Vpn21Native {
   late final _Vpn21LogsDart _logs;
   late final void Function() _logsClear;
   late final _Vpn21FreeDart _free;
+  // Desktop-only: provisions a real TUN via the Rust core (utun on macOS,
+  // /dev/net/tun on Linux, wintun on Windows).  Returns JSON the same shape
+  // as the platform channel produces on Android/iOS.
+  _Vpn21StringDart? _tunProvision;
 
   bool _initialised = false;
 
@@ -88,6 +92,16 @@ class Vpn21Native {
     _logs = _lib!.lookupFunction<_Vpn21LogsNative, _Vpn21LogsDart>('vpn21_logs');
     _logsClear = _lib!.lookupFunction<Void Function(), void Function()>('vpn21_logs_clear');
     _free = _lib!.lookupFunction<_Vpn21FreeNative, _Vpn21FreeDart>('vpn21_string_free');
+    if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
+      try {
+        _tunProvision = _lib!
+            .lookupFunction<_Vpn21StringNative, _Vpn21StringDart>('vpn21_tun_provision');
+      } catch (_) {
+        // Built without desktop TUN support; requestTun on desktop will
+        // return the platform-channel stub instead.
+        _tunProvision = null;
+      }
+    }
 
     final appDir = await _appDir();
     final pApp = appDir.toNativeUtf8();
@@ -136,6 +150,20 @@ class Vpn21Native {
   /// Kotlin `VpnService` for the fd.  On desktop it launches/attaches the
   /// helper process.
   Future<Map<String, dynamic>> requestTun(Map<String, dynamic> profile) async {
+    // On desktop we call the Rust TUN helper directly via FFI so that
+    // the real platform code (utun / /dev/net/tun / wintun) runs; the
+    // platform-channel handlers on those runners only return a stub.
+    if ((Platform.isLinux || Platform.isMacOS || Platform.isWindows) &&
+        _tunProvision != null) {
+      final ptr = _tunProvision!();
+      final s = ptr.toDartString();
+      _free(ptr);
+      final obj = json.decode(s) as Map<String, dynamic>;
+      if (obj['ok'] != true) {
+        throw StateError('vpn21_tun_provision: ${obj['error']}');
+      }
+      return (obj['tun'] as Map<dynamic, dynamic>).cast<String, dynamic>();
+    }
     final res = await _channel.invokeMethod<Map<dynamic, dynamic>>(
       'requestTun',
       {'profile': json.encode(profile)},
@@ -143,7 +171,13 @@ class Vpn21Native {
     return (res ?? {}).cast<String, dynamic>();
   }
 
-  Future<void> releaseTun() => _channel.invokeMethod('releaseTun');
+  Future<void> releaseTun() async {
+    if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
+      // Rust closes the TUN fd inside `vpn21_stop`; nothing to do here.
+      return;
+    }
+    await _channel.invokeMethod('releaseTun');
+  }
 
   Future<Map<String, dynamic>> start({
     required Map<String, dynamic> profile,

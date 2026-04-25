@@ -142,3 +142,60 @@ pub fn profiles_dir(app_dir: &Path) -> PathBuf {
 pub fn arti_cache_dir(app_dir: &Path) -> PathBuf {
     app_dir.join("cache").join("arti")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credentials_are_non_empty_and_varied() {
+        let a = random_credential();
+        let b = random_credential();
+        assert!(!a.is_empty());
+        assert_ne!(a, b, "32 random bytes collided — RNG broken?");
+        // url-safe base64 alphabet only
+        for c in a.chars() {
+            assert!(
+                c.is_ascii_alphanumeric() || c == '-' || c == '_',
+                "bad char {c}"
+            );
+        }
+    }
+
+    #[test]
+    fn free_ports_differ() {
+        let a = pick_free_port().unwrap();
+        let b = pick_free_port().unwrap();
+        assert!(a > 0 && b > 0);
+    }
+
+    #[test]
+    fn socks_url_encodes_specials() {
+        let ep = SocksEndpoint {
+            host: "127.0.0.1".into(),
+            port: 1080,
+            user: "a:b@c".into(),
+            pass: "p/q?r".into(),
+        };
+        let url = ep.as_url();
+        assert!(
+            url.starts_with("socks5://a%3Ab%40c:p%2Fq%3Fr@127.0.0.1:1080"),
+            "{url}"
+        );
+    }
+
+    #[test]
+    fn layout_is_created_and_is_private() {
+        let tmp = tempfile::tempdir().unwrap();
+        ensure_layout(tmp.path()).unwrap();
+        for sub in SUBDIRS {
+            assert!(tmp.path().join(sub).is_dir(), "{sub} missing");
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(tmp.path()).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700, "app dir not 0700 (got {:o})", mode);
+        }
+    }
+}

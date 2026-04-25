@@ -25,7 +25,9 @@ pub mod secure_store;
 pub mod transport;
 
 mod arti_pipeline;
+pub mod ios_pump;
 mod tun;
+pub mod tun_desktop;
 
 pub use errors::{Error, Result};
 

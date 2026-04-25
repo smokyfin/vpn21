@@ -40,7 +40,9 @@ impl LeafProvider {
     /// is `Some`, the outbound is a SOCKS5 chain; otherwise it is the
     /// profile's VLESS outbound.
     pub(crate) fn build_config(cfg: &TransportConfig, upstream: Option<&SocksEndpoint>) -> String {
-        let inbound = json!({
+        let mut inbounds = Vec::with_capacity(2);
+        // SOCKS5 always listens so the local DNS server / apps can dial in.
+        inbounds.push(json!({
             "protocol": "socks",
             "address": cfg.listen.host,
             "port": cfg.listen.port,
@@ -50,7 +52,46 @@ impl LeafProvider {
                 "password": cfg.listen.pass,
                 "udp": true
             }
-        });
+        }));
+        // TUN inbound: three possible provisioning modes.
+        //   1) we already have an fd (Android, Linux self-opened)
+        //   2) leaf should auto-create the TUN (macOS utun, Windows wintun)
+        //   3) no TUN at all (iOS: packet-flow is pumped outside of leaf)
+        let (addr_ip, addr_mask) =
+            split_cidr(cfg.tun_address.as_deref().unwrap_or("10.19.21.1/24"));
+        let netmask = mask_to_netmask(addr_mask);
+        if let Some(fd) = cfg.tun_fd {
+            inbounds.push(json!({
+                "protocol": "tun",
+                "settings": {
+                    "fd": fd,
+                    "address": addr_ip,
+                    "netmask": netmask,
+                    "gateway": addr_ip,
+                    "mtu": 1500,
+                    "tun2socks": "smoltcp",
+                    "dnsServers": ["1.1.1.1", "1.0.0.1"]
+                }
+            }));
+        } else if cfg.tun_auto {
+            let mut settings = json!({
+                "auto": true,
+                "name": "vpn21",
+                "address": addr_ip,
+                "netmask": netmask,
+                "gateway": addr_ip,
+                "mtu": 1500,
+                "tun2socks": "smoltcp",
+                "dnsServers": ["1.1.1.1", "1.0.0.1"]
+            });
+            if let Some(w) = &cfg.wintun_path {
+                settings["wintun"] = json!(w);
+            }
+            inbounds.push(json!({
+                "protocol": "tun",
+                "settings": settings
+            }));
+        }
 
         let outbound = match upstream {
             Some(up) => json!({
@@ -68,7 +109,7 @@ impl LeafProvider {
 
         json!({
             "log": { "level": "warn" },
-            "inbounds": [inbound],
+            "inbounds": inbounds,
             "outbounds": [outbound, {"protocol": "direct", "tag": "direct"}],
             "router": { "rules": [] },
             "dns": { "servers": ["1.1.1.1", "1.0.0.1"] }
@@ -113,6 +154,122 @@ impl LeafProvider {
             },
             "streamSettings": stream
         })
+    }
+}
+
+fn split_cidr(cidr: &str) -> (String, u8) {
+    match cidr.split_once('/') {
+        Some((ip, mask)) => (ip.to_string(), mask.parse().unwrap_or(24)),
+        None => (cidr.to_string(), 24),
+    }
+}
+
+fn mask_to_netmask(bits: u8) -> String {
+    let bits = bits.min(32);
+    let mask: u32 = if bits == 0 {
+        0
+    } else {
+        u32::MAX << (32 - bits)
+    };
+    std::net::Ipv4Addr::from(mask).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Profile;
+
+    fn sample_cfg(tun_fd: Option<i32>, tun_auto: bool) -> TransportConfig {
+        let raw = r#"{
+            "bridge_rsa_id": "715213AEA5BBE71AB2E9E1AFEE02D0170206021F",
+            "bridge_ed25519_id": "Rq4fdFNepS2oTFnyNrQon9FDWi46m5OFZKAGVFmMe9I",
+            "doh_server": "https://dns.google/dns-query",
+            "outbounds": [{"protocol":"vless","settings":{"vnext":[{"address":"1.2.3.4","port":443,"users":[{"id":"u"}]}]},"streamSettings":{"network":"grpc","grpcSettings":{"serviceName":"g"},"security":"reality","realitySettings":{"serverName":"s","publicKey":"p","shortId":"d","fingerprint":"f"}}}]
+        }"#;
+        let profile = Profile::from_json("id", "label", raw).unwrap();
+        TransportConfig {
+            profile,
+            listen: crate::secure_store::SocksEndpoint {
+                host: "127.0.0.1".into(),
+                port: 1080,
+                user: "u".into(),
+                pass: "p".into(),
+            },
+            session_tag: "t".into(),
+            tun_fd,
+            tun_address: Some("10.19.21.1/24".into()),
+            tun_auto,
+            wintun_path: None,
+        }
+    }
+
+    #[test]
+    fn config_has_vless_outbound_with_reality() {
+        let cfg = sample_cfg(None, false);
+        let cfg_str = LeafProvider::build_config(&cfg, None);
+        let v: serde_json::Value = serde_json::from_str(&cfg_str).unwrap();
+        let ob = &v["outbounds"][0];
+        assert_eq!(ob["protocol"], "vless");
+        assert_eq!(ob["streamSettings"]["network"], "grpc");
+        assert_eq!(ob["streamSettings"]["security"], "reality");
+        assert_eq!(ob["streamSettings"]["realitySettings"]["serverName"], "s");
+        assert_eq!(ob["streamSettings"]["grpcSettings"]["serviceName"], "g");
+    }
+
+    #[test]
+    fn chained_config_uses_socks_outbound() {
+        let cfg = sample_cfg(None, false);
+        let up = crate::secure_store::SocksEndpoint {
+            host: "127.0.0.1".into(),
+            port: 2222,
+            user: "uu".into(),
+            pass: "pp".into(),
+        };
+        let cfg_str = LeafProvider::build_config(&cfg, Some(&up));
+        let v: serde_json::Value = serde_json::from_str(&cfg_str).unwrap();
+        let ob = &v["outbounds"][0];
+        assert_eq!(ob["protocol"], "socks");
+        assert_eq!(ob["settings"]["port"], 2222);
+        assert_eq!(ob["settings"]["username"], "uu");
+    }
+
+    #[test]
+    fn tun_inbound_fd_mode() {
+        let cfg = sample_cfg(Some(7), false);
+        let cfg_str = LeafProvider::build_config(&cfg, None);
+        let v: serde_json::Value = serde_json::from_str(&cfg_str).unwrap();
+        let tun = &v["inbounds"][1];
+        assert_eq!(tun["protocol"], "tun");
+        assert_eq!(tun["settings"]["fd"], 7);
+        assert_eq!(tun["settings"]["netmask"], "255.255.255.0");
+        assert!(tun["settings"].get("auto").is_none());
+    }
+
+    #[test]
+    fn tun_inbound_auto_mode() {
+        let mut cfg = sample_cfg(None, true);
+        cfg.wintun_path = Some("C:\\wintun.dll".into());
+        let cfg_str = LeafProvider::build_config(&cfg, None);
+        let v: serde_json::Value = serde_json::from_str(&cfg_str).unwrap();
+        let tun = &v["inbounds"][1];
+        assert_eq!(tun["settings"]["auto"], true);
+        assert_eq!(tun["settings"]["wintun"], "C:\\wintun.dll");
+    }
+
+    #[test]
+    fn tun_inbound_absent_when_ios_style() {
+        let cfg = sample_cfg(None, false);
+        let cfg_str = LeafProvider::build_config(&cfg, None);
+        let v: serde_json::Value = serde_json::from_str(&cfg_str).unwrap();
+        assert!(v["inbounds"].as_array().unwrap().len() == 1);
+    }
+
+    #[test]
+    fn mask_to_netmask_is_correct() {
+        assert_eq!(mask_to_netmask(24), "255.255.255.0");
+        assert_eq!(mask_to_netmask(16), "255.255.0.0");
+        assert_eq!(mask_to_netmask(32), "255.255.255.255");
+        assert_eq!(mask_to_netmask(0), "0.0.0.0");
     }
 }
 

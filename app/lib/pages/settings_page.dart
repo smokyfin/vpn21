@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/config_state.dart';
 
+final verboseLoggingProvider = StateProvider<bool>((ref) => false);
+
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profiles = ref.watch(profilesProvider);
+    final verbose = ref.watch(verboseLoggingProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
@@ -45,9 +48,25 @@ class SettingsPage extends ConsumerWidget {
             ),
           const Divider(),
           const ListTile(
+            title: Text('Debug', style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.bug_report_outlined),
+            title: const Text('Verbose logging'),
+            subtitle: const Text('Show DEBUG and TRACE level entries.'),
+            value: verbose,
+            onChanged: (v) => ref.read(verboseLoggingProvider.notifier).state = v,
+          ),
+          const ListTile(
+            leading: Icon(Icons.extension_outlined),
+            title: Text('Transport provider'),
+            subtitle: Text('leaf (built-in)'),
+          ),
+          const Divider(),
+          const ListTile(
             leading: Icon(Icons.info_outline_rounded),
             title: Text('About'),
-            subtitle: Text('vpn21 — Tor with custom VLESS pluggable transport.'),
+            subtitle: Text('vpn21 \u2014 Tor with custom VLESS pluggable transport.'),
           ),
           const ListTile(
             leading: Icon(Icons.code_outlined),
