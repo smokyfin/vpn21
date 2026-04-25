@@ -94,11 +94,16 @@ mkdir -p "$BUILD/sim-universal" "$BUILD/headers"
 # ship the Swift sources and Info.plist as if they were headers.
 cp "$ROOT/app/ios/PacketTunnel/vpn21.h" "$BUILD/headers/"
 
-# Build the fat simulator slice (arm64 + x86_64).  If the user overrode
-# VPN21_IOS_TARGETS we try to be lenient: lipo whatever sim slices exist.
+# Build the fat simulator slice (arm64 + x86_64).  Bucket the requested
+# targets by slice so that overriding VPN21_IOS_TARGETS cannot silently
+# pick up stale `.a` files from a previous build.
 SIM_INPUTS=()
+DEVICE_LIB=""
 for t in $TARGETS; do
   case "$t" in
+    aarch64-apple-ios)
+      DEVICE_LIB="$ROOT/target/$t/$PROFILE_DIR/libvpn21.a"
+      ;;
     aarch64-apple-ios-sim|x86_64-apple-ios-sim)
       SIM_INPUTS+=("$ROOT/target/$t/$PROFILE_DIR/libvpn21.a")
       ;;
@@ -109,9 +114,9 @@ if [[ ${#SIM_INPUTS[@]} -gt 0 ]]; then
 fi
 
 XCF_ARGS=()
-# Device slice.
-if [[ -f "$ROOT/target/aarch64-apple-ios/$PROFILE_DIR/libvpn21.a" ]]; then
-  XCF_ARGS+=(-library "$ROOT/target/aarch64-apple-ios/$PROFILE_DIR/libvpn21.a"
+# Device slice (only if the caller actually asked for aarch64-apple-ios).
+if [[ -n "$DEVICE_LIB" && -f "$DEVICE_LIB" ]]; then
+  XCF_ARGS+=(-library "$DEVICE_LIB"
              -headers "$BUILD/headers")
 fi
 # Simulator slice (fat).
