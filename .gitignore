@@ -30,7 +30,10 @@ app/android/local.properties
 app/android/gradle-wrapper.jar
 app/android/app/src/main/java/io/flutter/plugins/
 app/android/app/src/main/jniLibs/
-app/macos/
+app/macos/Pods/
+app/macos/.symlinks/
+app/macos/Flutter/ephemeral/
+app/macos/Flutter/GeneratedPluginRegistrant.swift
 app/linux/flutter/generated_plugin_registrant.cc
 app/linux/flutter/generated_plugin_registrant.h
 app/linux/flutter/generated_plugins.cmake
