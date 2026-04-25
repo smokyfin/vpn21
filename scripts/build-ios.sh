@@ -52,13 +52,16 @@ if ! xcode-select -p >/dev/null 2>&1; then
   exit 2
 fi
 
-# Simulator targets:
+# Simulator targets (both carry PLATFORM_IOSSIMULATOR in LC_BUILD_VERSION
+# so they are lipo-compatible into a single simulator slice):
 #   * aarch64-apple-ios-sim — Apple Silicon Macs
-#   * x86_64-apple-ios      — Intel Macs (Rust still uses the non-sim triple
-#                             for the x86_64 simulator slice; they are
-#                             lipo-compatible because both carry the
-#                             simulator platform in their LC_BUILD_VERSION).
-TARGETS="${VPN21_IOS_TARGETS:-aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios}"
+#   * x86_64-apple-ios-sim  — Intel Macs (since Rust 1.73 the old
+#                             x86_64-apple-ios triple is a *device* target,
+#                             so lipo-ing it with aarch64-apple-ios-sim
+#                             produced a universal lib with mismatched
+#                             platform tags that xcodebuild -create-
+#                             xcframework rejected).
+TARGETS="${VPN21_IOS_TARGETS:-aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios-sim}"
 
 for t in $TARGETS; do
   rustup target add "$t" >/dev/null
@@ -96,7 +99,7 @@ cp "$ROOT/app/ios/PacketTunnel/vpn21.h" "$BUILD/headers/"
 SIM_INPUTS=()
 for t in $TARGETS; do
   case "$t" in
-    aarch64-apple-ios-sim|x86_64-apple-ios)
+    aarch64-apple-ios-sim|x86_64-apple-ios-sim)
       SIM_INPUTS+=("$ROOT/target/$t/$PROFILE_DIR/libvpn21.a")
       ;;
   esac
