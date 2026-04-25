@@ -9,12 +9,21 @@ import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import org.json.JSONObject
 
+/**
+ * Hosts the Flutter engine and routes the two MethodChannels the Dart
+ * bridge talks to:
+ *
+ *   * `vpn21/native#startVpn` / `stopVpn` — orchestrate the foreground
+ *     VpnService.  The TUN fd never reaches Dart; the service hands it
+ *     straight to Rust via JNI.
+ *   * `vpn21/android_apps#list` — returns the installed app list for the
+ *     per-app filter UI.
+ */
 class MainActivity : FlutterActivity() {
 
-    private var tunRequest: MethodChannel.Result? = null
-    private var pendingProfile: JSONObject? = null
+    private var startResult: MethodChannel.Result? = null
+    private var pendingProfileJson: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -22,11 +31,8 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vpn21/native")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "requestTun" -> onRequestTun(call.argument<String>("profile"), result)
-                    "releaseTun" -> {
-                        stopService(Intent(this, Vpn21VpnService::class.java))
-                        result.success(null)
-                    }
+                    "startVpn" -> onStartVpn(call.argument<String>("profile"), result)
+                    "stopVpn" -> onStopVpn(result)
                     else -> result.notImplemented()
                 }
             }
@@ -40,48 +46,59 @@ class MainActivity : FlutterActivity() {
             }
     }
 
-    private fun onRequestTun(profileJson: String?, result: MethodChannel.Result) {
-        pendingProfile = profileJson?.let { JSONObject(it) }
-        tunRequest = result
+    private fun onStartVpn(profileJson: String?, result: MethodChannel.Result) {
+        pendingProfileJson = profileJson
+        startResult = result
         val prep = VpnService.prepare(this)
         if (prep != null) {
             startActivityForResult(prep, REQ_VPN)
         } else {
-            onVpnPermissionGranted()
+            launchService()
         }
+    }
+
+    private fun onStopVpn(result: MethodChannel.Result) {
+        val intent = Intent(this, Vpn21VpnService::class.java).apply {
+            action = Vpn21VpnService.ACTION_STOP
+        }
+        startService(intent)
+        result.success(mapOf("ok" to true, "detail" to "stopped"))
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_VPN) {
             if (resultCode == Activity.RESULT_OK) {
-                onVpnPermissionGranted()
+                launchService()
             } else {
-                tunRequest?.error("VPN_DENIED", "User denied VPN permission", null)
-                tunRequest = null
+                startResult?.error("VPN_DENIED", "User denied VPN permission", null)
+                startResult = null
             }
         }
     }
 
-    private fun onVpnPermissionGranted() {
+    private fun launchService() {
         val intent = Intent(this, Vpn21VpnService::class.java).apply {
             action = Vpn21VpnService.ACTION_START
-            putExtra(Vpn21VpnService.EXTRA_PROFILE, pendingProfile?.toString())
+            putExtra(Vpn21VpnService.EXTRA_PROFILE, pendingProfileJson ?: "")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
             startService(intent)
         }
-        // The service publishes the fd + addressing back via a broadcast; we
-        // listen and forward it to Dart through [tunRequest].
-        Vpn21VpnService.waitForTun { tun, err ->
-            if (err != null) {
-                tunRequest?.error("TUN_ERR", err, null)
+        // The service publishes the start result back via a tiny in-process
+        // bus; we forward it to Dart so the UI can transition out of the
+        // "starting" stage.
+        Vpn21VpnService.waitForStart { ok, err ->
+            val r = startResult
+            startResult = null
+            if (r == null) return@waitForStart
+            if (ok) {
+                r.success(mapOf("ok" to true, "detail" to "started"))
             } else {
-                tunRequest?.success(tun)
+                r.error("START_FAIL", err ?: "unknown error", null)
             }
-            tunRequest = null
         }
     }
 

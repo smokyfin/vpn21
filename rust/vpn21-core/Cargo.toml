@@ -45,9 +45,15 @@ leaf = { workspace = true, optional = true }
 [dev-dependencies]
 tempfile = "3"
 
+# `jni` is needed for the Android JNI shim but we keep the dep
+# host-available behind a feature so `cargo check` on the dev box still
+# verifies the shim compiles syntactically without needing the NDK.
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
 android_logger = "0.13"
+
+[dependencies.jni]
+version = "0.21"
+optional = true
 
 [target.'cfg(target_os = "ios")'.dependencies]
 oslog = "0.2"
@@ -68,3 +74,7 @@ embedded-tun = []
 # Mirrors leaf's `auto-reload` feature; lets us gate calls to
 # `StartOptions::auto_reload` without tripping unexpected_cfgs lints.
 auto-reload = ["leaf?/auto-reload"]
+# Compiles the JNI shim used by the Android Vpn21VpnService.  The shim
+# uses the `jni` crate which we keep optional so non-Android builds do
+# not pull it in.
+android-jni = ["dep:jni"]

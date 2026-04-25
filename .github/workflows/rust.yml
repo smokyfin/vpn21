@@ -28,6 +28,9 @@ jobs:
       - name: cargo check
         run: cargo check --workspace --all-targets
         timeout-minutes: 30
+      - name: cargo check (android JNI shim)
+        run: cargo check --manifest-path rust/vpn21-core/Cargo.toml --features android-jni
+        timeout-minutes: 15
       - name: cargo test (default features)
         run: cargo test --manifest-path rust/vpn21-core/Cargo.toml --lib
         timeout-minutes: 15

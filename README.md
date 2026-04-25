@@ -72,19 +72,69 @@ cargo build --release --features full                 # real leaf + arti datapat
 `rust-toolchain.toml` pins Rust 1.90. `cargo test --lib` covers the config
 parser, the secure-store permissions/RNG, and SOCKS URL encoding.
 
-### Mobile packaging
+### Build scripts
+
+All five platforms have a dedicated Rust build script under `scripts/`:
+
+| script                 | output                                                                              |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `build-android.sh`     | `app/android/app/src/main/jniLibs/<abi>/libvpn21.so` (per-ABI cargo-ndk build)      |
+| `build-ios.sh`         | `app/ios/PacketTunnel/Vpn21Core.xcframework` (arm64 device + arm64/x86_64 sim)      |
+| `build-macos.sh`       | `app/macos/Frameworks/libvpn21.dylib` (universal Apple Silicon + Intel)             |
+| `build-linux.sh`       | `app/linux/bundled/libvpn21.so`                                                     |
+| `build-windows.sh`     | `app/windows/bundled/vpn21.dll` (msvc on Windows, mingw cross from *nix)            |
+
+`scripts/build-flutter.sh <platform>` orchestrates the full build pipeline
+end-to-end: it runs the matching Rust script first and then `flutter
+build <platform>` so the resulting bundle ships the native lib alongside
+the Flutter assets.  `scripts/build-flutter.sh all` is a convenience that
+builds every platform the host can target.
 
 ```
-# Android: produces libvpn21.so in app/android/app/src/main/jniLibs/<abi>
-ANDROID_NDK_HOME=... scripts/build-android.sh --release
+# Single platform
+ANDROID_NDK_HOME=... scripts/build-flutter.sh android --release
+scripts/build-flutter.sh ios     --release
+scripts/build-flutter.sh macos   --release
+scripts/build-flutter.sh linux   --release
+scripts/build-flutter.sh windows --release
 
-# iOS: produces app/ios/PacketTunnel/Vpn21Core.xcframework
-scripts/build-ios.sh --release
+# Or, if you only need the Rust artifact:
+scripts/build-android.sh --release   # ditto: ios / macos / linux / windows
 ```
 
-### Desktop TUN
+### Architectural rule: the TUN fd never crosses the Dart boundary
 
-The core exposes `vpn21_tun_provision` on Linux/macOS/Windows which opens
-a TUN device (Linux uses `/dev/net/tun`) and hands the fd back to Flutter.
-On macOS and Windows the call currently returns an error describing the
-helper that still needs to be shipped (utun / wintun).
+The whole VPN datapath (TUN adoption, leaf #1 / arti / leaf #2 / DNS) lives
+in `vpn21-core` (Rust).  Flutter only deals with profiles and lifecycle:
+
+* **Android.**  `Vpn21VpnService` opens the fd via
+  `VpnService.Builder.establish()` and hands it directly into Rust through
+  the JNI shim `Java_com_vpn21_app_Vpn21Native_nativeStartWithFd` (compiled
+  in via the `android-jni` cargo feature).  Dart only sends a
+  `vpn21/native#startVpn` MethodChannel call.
+* **iOS.**  `PacketTunnelProvider` calls the C-ABI `vpn21_start_with_fd`
+  from the extension once `setTunnelNetworkSettings` returns.  Dart asks
+  the system to start the extension via `NETunnelProviderManager`.
+* **Desktop.**  Dart calls `vpn21_start_desktop(profile_json)` via
+  `dart:ffi`; Rust opens its own TUN through `tun::platform::provision`
+  (`/dev/net/tun` on Linux, utun on macOS, WinTun on Windows).
+
+This is what keeps the iOS NetworkExtension RAM budget (~50 MB resident)
+realistic — no Dart isolate is loaded inside the extension; only the
+small Rust core + leaf + arti runtime.
+
+### Provisioning desktop projects
+
+The Flutter desktop runner directories (`app/linux`, `app/macos`,
+`app/windows`) only contain the bits we add by hand
+(`vpn21_method_channel.{cc,cpp}`, `MainFlutterWindow.swift`).  The full
+runner / CMakeLists / Xcode project is generated on demand from a Flutter
+SDK that has the corresponding desktop target enabled:
+
+```
+flutter config --enable-linux-desktop --enable-macos-desktop --enable-windows-desktop
+cd app && flutter create --platforms=linux,macos,windows .
+```
+
+After that, the Rust build scripts above drop the native lib into the
+runner-bundled directory and `flutter build <platform>` picks it up.

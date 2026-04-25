@@ -25,9 +25,12 @@ enum Vpn21Bridge {
         // so no packets are dropped in the window between `vpn21_start` and
         // the first `readPackets` completion.
         vpn21_ios_pump_start()
+        // The PacketTunnel extension owns the in-process packet flow rather
+        // than a real fd, so we pass -1 and rely on the iOS pump (started
+        // above) to ferry packets between Rust and `NEPacketTunnelFlow`.
         let res = profileJson.withCString { pjson in
             "10.19.21.2".withCString { ipv4 in
-                vpn21_start(pjson, -1, 1500, ipv4, 24, 53)
+                vpn21_start_with_fd(pjson, -1, 1500, ipv4, 24, 53)
             }
         }
         if let res = res {
