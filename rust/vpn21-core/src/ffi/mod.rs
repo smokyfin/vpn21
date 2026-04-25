@@ -24,7 +24,12 @@ mod jni_android;
 
 use runtime::runtime;
 
-static ORCH: OnceCell<Arc<Orchestrator>> = OnceCell::new();
+/// Process-wide orchestrator handle, populated once by [`vpn21_init`] (or
+/// the JNI-equivalent `nativeInit`).  Both the C-ABI and the Android JNI
+/// shim must read and write the *same* `OnceCell` so that, on Android,
+/// the Dart-side `vpn21_status()` poll sees the session that
+/// `Vpn21VpnService` started through JNI.
+pub(crate) static ORCH: OnceCell<Arc<Orchestrator>> = OnceCell::new();
 
 #[allow(clippy::missing_safety_doc)]
 #[no_mangle]

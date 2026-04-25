@@ -8,8 +8,6 @@
 //! All symbols use the `Java_com_vpn21_app_Vpn21Native_*` JNI naming
 //! convention so they bind without any extra `RegisterNatives` call.
 
-use std::sync::Arc;
-
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jint, jstring};
 use jni::JNIEnv;
@@ -20,9 +18,7 @@ use crate::tun::TunConfig;
 use crate::{init as core_init, InitOptions};
 
 use super::runtime::runtime;
-use once_cell::sync::OnceCell;
-
-static ORCH: OnceCell<Arc<Orchestrator>> = OnceCell::new();
+use super::ORCH;
 
 /// `Vpn21Native.nativeInit(appDir: String, verbose: Boolean): Int`.
 ///
