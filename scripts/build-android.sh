@@ -56,7 +56,7 @@ declare -A ABI_TO_TRIPLE=(
   [x86]=i686-linux-android
   [x86_64]=x86_64-linux-android
 )
-ABIS="${VPN21_ANDROID_ABIS:-arm64-v8a armeabi-v7a x86 x86_64}"
+ABIS="${VPN21_ANDROID_ABIS:-arm64-v8a armeabi-v7a x86_64}"
 
 mkdir -p "$OUT"
 
