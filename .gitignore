@@ -21,27 +21,27 @@ app/ios/Flutter/Flutter.podspec
 app/ios/Flutter/Generated.xcconfig
 app/ios/Flutter/flutter_export_environment.sh
 app/ios/Flutter/ephemeral/
+app/ios/DerivedData/
 app/ios/Runner/GeneratedPluginRegistrant.h
 app/ios/Runner/GeneratedPluginRegistrant.m
-app/ios/DerivedData/
 app/android/.gradle/
 app/android/captures/
 app/android/local.properties
 app/android/gradle-wrapper.jar
-app/android/app/src/main/jniLibs/
 app/android/app/src/main/java/io/flutter/plugins/
+app/android/app/src/main/jniLibs/
 app/macos/Pods/
 app/macos/.symlinks/
 app/macos/Flutter/ephemeral/
 app/macos/Flutter/GeneratedPluginRegistrant.swift
-app/linux/flutter/ephemeral/
 app/linux/flutter/generated_plugin_registrant.cc
 app/linux/flutter/generated_plugin_registrant.h
 app/linux/flutter/generated_plugins.cmake
-app/windows/flutter/ephemeral/
+app/linux/flutter/ephemeral/
 app/windows/flutter/generated_plugin_registrant.cc
 app/windows/flutter/generated_plugin_registrant.h
 app/windows/flutter/generated_plugins.cmake
+app/windows/flutter/ephemeral/
 
 # OS
 .DS_Store

@@ -5,19 +5,29 @@
 # Requires:
 #   - rustup (targets installed below on demand)
 #   - cargo-ndk (`cargo install cargo-ndk`)
-#   - ANDROID_NDK_HOME environment variable
+#   - ANDROID_NDK_HOME or ANDROID_NDK_ROOT environment variable
 #
 # Usage:
 #   scripts/build-android.sh                # debug
 #   scripts/build-android.sh --release      # release + strip
+#   scripts/build-android.sh --no-full      # only the leaf backend (no arti)
+#
+# Environment variables (optional):
+#   VPN21_ANDROID_API_LEVEL   default: 24 (matches Flutter's minSdkVersion)
+#   VPN21_ANDROID_ABIS        override the ABI list, space separated
+
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CRATE="$ROOT/rust/vpn21-core"
 OUT="$ROOT/app/android/app/src/main/jniLibs"
 
+# Accept either of the two NDK env var names cargo-ndk recognises.
+if [[ -z "${ANDROID_NDK_HOME:-}" && -n "${ANDROID_NDK_ROOT:-}" ]]; then
+  export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
+fi
 if [[ -z "${ANDROID_NDK_HOME:-}" ]]; then
-  echo "error: ANDROID_NDK_HOME not set" >&2
+  echo "error: set ANDROID_NDK_HOME (or ANDROID_NDK_ROOT) to your NDK install" >&2
   exit 2
 fi
 if ! command -v cargo-ndk >/dev/null 2>&1; then
@@ -36,32 +46,38 @@ for arg in "$@"; do
   esac
 done
 
+API_LEVEL="${VPN21_ANDROID_API_LEVEL:-24}"
+
+# ABI ↔ rustup triple mapping.  Keep in sync with
+# app/android/app/build.gradle `ndk.abiFilters`.
+declare -A ABI_TO_TRIPLE=(
+  [arm64-v8a]=aarch64-linux-android
+  [armeabi-v7a]=armv7-linux-androideabi
+  [x86]=i686-linux-android
+  [x86_64]=x86_64-linux-android
+)
+ABIS="${VPN21_ANDROID_ABIS:-arm64-v8a armeabi-v7a x86_64}"
+
 mkdir -p "$OUT"
 
-# Android ABIs and their rustup target triples
-declare -a TARGETS=(
-  "arm64-v8a      aarch64-linux-android"
-  "armeabi-v7a    armv7-linux-androideabi"
-  "x86            i686-linux-android"
-  "x86_64         x86_64-linux-android"
-)
-
-for row in "${TARGETS[@]}"; do
-  set -- $row
-  abi="$1"; triple="$2"
+CARGO_NDK_TARGETS=()
+for abi in $ABIS; do
+  triple="${ABI_TO_TRIPLE[$abi]:-}"
+  if [[ -z "$triple" ]]; then
+    echo "error: unknown Android ABI: $abi" >&2
+    exit 2
+  fi
   rustup target add "$triple" >/dev/null
+  CARGO_NDK_TARGETS+=(--target "$triple")
 done
 
 cd "$CRATE"
 cargo ndk \
-  --target aarch64-linux-android \
-  --target armv7-linux-androideabi \
-  --target i686-linux-android \
-  --target x86_64-linux-android \
+  "${CARGO_NDK_TARGETS[@]}" \
   --output-dir "$OUT" \
-  --platform 24 \
+  --platform "$API_LEVEL" \
   -- build $PROFILE_FLAG --features "$FEATURES"
 
 echo
-echo "Built vpn21 jniLibs:"
-find "$OUT" -name "libvpn21.so" -printf "  %p\n"
+echo "Built vpn21 jniLibs (profile=$PROFILE_DIR, api=$API_LEVEL, features=$FEATURES):"
+find "$OUT" -name "libvpn21.so" -print | sort
