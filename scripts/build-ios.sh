@@ -84,7 +84,12 @@ for t in $TARGETS; do
 done
 
 rm -rf "$BUILD" "$XCF"
-mkdir -p "$BUILD/sim-universal"
+mkdir -p "$BUILD/sim-universal" "$BUILD/headers"
+# Stage ONLY the public C header into a dedicated directory.  xcodebuild's
+# `-headers` copies the whole tree it points at into the framework's
+# Headers/ subdir, so pointing it at `app/ios/PacketTunnel` would also
+# ship the Swift sources and Info.plist as if they were headers.
+cp "$ROOT/app/ios/PacketTunnel/vpn21.h" "$BUILD/headers/"
 
 # Build the fat simulator slice (arm64 + x86_64).  If the user overrode
 # VPN21_IOS_TARGETS we try to be lenient: lipo whatever sim slices exist.
@@ -104,12 +109,12 @@ XCF_ARGS=()
 # Device slice.
 if [[ -f "$ROOT/target/aarch64-apple-ios/$PROFILE_DIR/libvpn21.a" ]]; then
   XCF_ARGS+=(-library "$ROOT/target/aarch64-apple-ios/$PROFILE_DIR/libvpn21.a"
-             -headers "$ROOT/app/ios/PacketTunnel")
+             -headers "$BUILD/headers")
 fi
 # Simulator slice (fat).
 if [[ -f "$BUILD/sim-universal/libvpn21.a" ]]; then
   XCF_ARGS+=(-library "$BUILD/sim-universal/libvpn21.a"
-             -headers "$ROOT/app/ios/PacketTunnel")
+             -headers "$BUILD/headers")
 fi
 if [[ ${#XCF_ARGS[@]} -eq 0 ]]; then
   echo "error: no iOS slices were built; check cargo output above" >&2
