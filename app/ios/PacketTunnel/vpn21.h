@@ -14,8 +14,14 @@ extern "C" {
 
 int  vpn21_init(const char* app_dir, int verbose);
 char* vpn21_profile_parse(const char* id, const char* label, const char* json);
+// Native (Kotlin/Swift) start: caller already holds the TUN fd.
+char* vpn21_start_with_fd(const char* profile_json, int tun_fd, int mtu,
+                          const char* ipv4, int mask, int dns_port);
+// Legacy alias of vpn21_start_with_fd, kept so older native code keeps linking.
 char* vpn21_start(const char* profile_json, int tun_fd, int mtu,
                   const char* ipv4, int mask, int dns_port);
+// Dart-callable, desktop only: Rust provisions its own TUN.
+char* vpn21_start_desktop(const char* profile_json);
 char* vpn21_stop(void);
 char* vpn21_status(void);
 char* vpn21_logs(int limit);

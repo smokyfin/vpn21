@@ -17,11 +17,19 @@ use crate::orchestrator::{Orchestrator, SessionState, SessionStatus};
 use crate::tun::TunConfig;
 use crate::{init as core_init, InitOptions};
 
-mod runtime;
+pub(crate) mod runtime;
+
+#[cfg(feature = "android-jni")]
+mod jni_android;
 
 use runtime::runtime;
 
-static ORCH: OnceCell<Arc<Orchestrator>> = OnceCell::new();
+/// Process-wide orchestrator handle, populated once by [`vpn21_init`] (or
+/// the JNI-equivalent `nativeInit`).  Both the C-ABI and the Android JNI
+/// shim must read and write the *same* `OnceCell` so that, on Android,
+/// the Dart-side `vpn21_status()` poll sees the session that
+/// `Vpn21VpnService` started through JNI.
+pub(crate) static ORCH: OnceCell<Arc<Orchestrator>> = OnceCell::new();
 
 #[allow(clippy::missing_safety_doc)]
 #[no_mangle]
@@ -72,12 +80,19 @@ pub unsafe extern "C" fn vpn21_profile_parse(
         .into_raw()
 }
 
-/// Starts the VPN session.  `profile_json` is a serialised [`Profile`] (the
-/// object returned by [`vpn21_profile_parse`]).  `tun_fd`, `mtu`, `ipv4`,
-/// `mask`, `dns_port` describe the already-opened TUN.
+/// **Native callers only (Kotlin / Swift).** Starts the VPN session with a
+/// platform-provided TUN file descriptor.  Dart code MUST NOT call this —
+/// crossing a raw fd through the Dart isolate is unsafe (the GC may close
+/// the wrong end if the platform also retains a reference).  Dart should
+/// instead call [`vpn21_start_desktop`] (which provisions its own TUN) on
+/// desktop, and ask the platform code via MethodChannel on Android / iOS.
+///
+/// `profile_json` is a serialised [`Profile`] (the object returned by
+/// [`vpn21_profile_parse`]).  `tun_fd`, `mtu`, `ipv4`, `mask`, `dns_port`
+/// describe the already-opened TUN.
 #[allow(clippy::missing_safety_doc)]
 #[no_mangle]
-pub unsafe extern "C" fn vpn21_start(
+pub unsafe extern "C" fn vpn21_start_with_fd(
     profile_json: *const c_char,
     tun_fd: c_int,
     mtu: c_int,
@@ -115,6 +130,61 @@ pub unsafe extern "C" fn vpn21_start(
     match res {
         Ok(()) => ok("started"),
         Err(e) => err(&e.to_string()),
+    }
+}
+
+/// **Legacy alias** for [`vpn21_start_with_fd`].  Pre-existing native code
+/// linked against `vpn21_start` continues to work; the new Dart bridge
+/// never calls this symbol.  We keep the alias to avoid an ABI break with
+/// out-of-tree Kotlin/Swift code already shipping the old name.
+#[allow(clippy::missing_safety_doc)]
+#[no_mangle]
+pub unsafe extern "C" fn vpn21_start(
+    profile_json: *const c_char,
+    tun_fd: c_int,
+    mtu: c_int,
+    ipv4: *const c_char,
+    mask: c_int,
+    dns_port: c_int,
+) -> *mut c_char {
+    vpn21_start_with_fd(profile_json, tun_fd, mtu, ipv4, mask, dns_port)
+}
+
+/// **Dart-callable, desktop only.** Provisions a host TUN interface and
+/// starts the pipeline against it — the entire packet path stays inside
+/// Rust.  On Android / iOS this returns an error: there the platform owns
+/// the fd and must call [`vpn21_start_with_fd`] (Kotlin via JNI, Swift
+/// directly) so we never have to ferry a raw fd through Dart.
+#[allow(clippy::missing_safety_doc)]
+#[no_mangle]
+pub unsafe extern "C" fn vpn21_start_desktop(profile_json: *const c_char) -> *mut c_char {
+    let Some(orch) = ORCH.get().cloned() else {
+        return err("not initialised");
+    };
+    let profile_json = match cstr(profile_json) {
+        Ok(s) => s,
+        Err(_) => return err("bad profile_json"),
+    };
+    let profile: Profile = match serde_json::from_str(&profile_json) {
+        Ok(p) => p,
+        Err(e) => return err(&format!("profile parse: {e}")),
+    };
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    {
+        let tun = match crate::tun::platform::provision() {
+            Ok(t) => t,
+            Err(e) => return err(&format!("tun provision: {e}")),
+        };
+        let rt = runtime();
+        match rt.block_on(async move { orch.start(profile, tun).await }) {
+            Ok(()) => ok("started"),
+            Err(e) => err(&e.to_string()),
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (orch, profile);
+        err("vpn21_start_desktop is desktop-only; mobile callers must use vpn21_start_with_fd")
     }
 }
 

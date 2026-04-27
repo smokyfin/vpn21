@@ -37,11 +37,13 @@ fi
 
 PROFILE_FLAG=""
 PROFILE_DIR="debug"
-FEATURES="full"
+# Android always wants the JNI shim — Vpn21VpnService loads
+# `Java_com_vpn21_app_Vpn21Native_*` from libvpn21.so.
+FEATURES="full,android-jni"
 for arg in "$@"; do
   case "$arg" in
     --release) PROFILE_FLAG="--release"; PROFILE_DIR="release" ;;
-    --no-full) FEATURES="backend-leaf" ;;
+    --no-full) FEATURES="backend-leaf,android-jni" ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
 done

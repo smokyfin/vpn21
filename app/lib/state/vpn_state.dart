@@ -77,10 +77,14 @@ class VpnController extends StateNotifier<VpnStatus> {
       ...profile,
       'exit_country': country ?? '',
     };
-    state = state.copyWith(stage: VpnStage.bootstrapping, detail: 'requesting tun', progress: 2);
+    state = state.copyWith(stage: VpnStage.bootstrapping, detail: 'starting', progress: 2);
     try {
-      final tun = await Vpn21Native.instance.requestTun(profileWithCountry);
-      await Vpn21Native.instance.start(profile: profileWithCountry, tun: tun);
+      // The bridge dispatches by platform: on Android/iOS it sends a
+      // MethodChannel `startVpn` so the platform code (Kotlin VpnService
+      // / Swift PacketTunnelProvider) opens the TUN and calls Rust
+      // directly with the fd; on desktop it goes straight into
+      // `vpn21_start_desktop`.  No fd ever touches Dart.
+      await Vpn21Native.instance.start(profile: profileWithCountry);
     } catch (e) {
       state = state.copyWith(stage: VpnStage.error, detail: '$e');
     }
@@ -90,7 +94,6 @@ class VpnController extends StateNotifier<VpnStatus> {
     state = state.copyWith(stage: VpnStage.disconnecting, detail: 'stopping', progress: 40);
     try {
       await Vpn21Native.instance.stop();
-      await Vpn21Native.instance.releaseTun();
     } catch (e) {
       state = state.copyWith(stage: VpnStage.error, detail: '$e');
     }
